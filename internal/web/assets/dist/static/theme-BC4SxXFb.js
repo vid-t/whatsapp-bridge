@@ -1,0 +1,1 @@
+(function(){var d;try{var t=localStorage.getItem("bridge.theme");d=t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches)}catch(e){d=false}var r=document.documentElement;r.classList.add(d?"dark":"light")})();

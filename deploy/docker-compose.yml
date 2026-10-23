@@ -1,0 +1,36 @@
+# whatsapp-bridge behind Caddy (automatic HTTPS). Setup: deploy/SELF-HOSTING.md, path B.
+# Next to this file you need Caddyfile.compose and whatsapp-bridge-env (copied from
+# whatsapp-bridge-env.example and filled in). Then: docker compose up -d
+name: whatsapp-bridge
+
+services:
+  whatsapp-bridge:
+    image: ghcr.io/vid-t/whatsapp-bridge:latest
+    restart: unless-stopped
+    env_file: ./whatsapp-bridge-env
+    volumes:
+      - whatsapp-bridge-data:/data
+    # Not published on the host: only Caddy reaches it, on the compose network.
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - whatsapp-bridge
+    # Caddy only needs DOMAIN from this file.
+    env_file: ./whatsapp-bridge-env
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.compose:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  whatsapp-bridge-data:
+  caddy_data:
+  caddy_config:

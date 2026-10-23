@@ -1,0 +1,475 @@
+/* Sign-in, consent and notice pages served by the bridge. They share the web
+   UI's neutral tokens and its one accent, written out by hand: no scripts, no
+   web fonts (the page CSP allows none), no images besides the provider logos
+   and the mark. Light and dark follow the browser. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --subtle: #fafafa;
+  --fg: #0a0a0a;
+  --muted: #636363;
+  --line: #e5e5e5;
+  --line-strong: #d4d4d4;
+  --input: #dbdbdb;
+  --primary: #171717;
+  --on-primary: #fafafa;
+  --hover: #f4f4f4;
+  --ring: #1d64dd;
+  --alert: #c4161c;
+  --alert-bg: #fdf3f3;
+  --alert-line: #f3c9ca;
+  --warn: #7a5300;
+  --warn-bg: #fff8e8;
+  --warn-line: #f2dca5;
+  --ok: #18a058;
+  --shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0a;
+    --card: #121212;
+    --subtle: #0f0f0f;
+    --fg: #fafafa;
+    --muted: #a6a6a6;
+    --line: #262626;
+    --line-strong: #333333;
+    --input: #303030;
+    --primary: #f0f0f0;
+    --on-primary: #171717;
+    --hover: #1c1c1c;
+    --ring: #6ea8fe;
+    --alert: #ff8a8a;
+    --alert-bg: #2a1213;
+    --alert-line: #4a2224;
+    --warn: #f3d27a;
+    --warn-bg: #261d09;
+    --warn-line: #47380f;
+    --ok: #4ade80;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  caret-color: var(--ring);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ring) 24%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---- header: the mark, the product, the bridge's name, then where you are */
+
+.top {
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3.5rem;
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+
+.sep {
+  width: 1px;
+  height: 1.125rem;
+  flex: none;
+  background: var(--line-strong);
+  transform: skewX(-18deg);
+}
+
+.name,
+.crumb {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb {
+  font-weight: 400;
+}
+
+/* On a phone the bridge's name gives way to where you are. */
+@media (max-width: 30rem) {
+  .sep:has(+ .name),
+  .name {
+    display: none;
+  }
+}
+
+/* ---- the card */
+
+.shell {
+  width: 100%;
+  max-width: 27rem;
+  margin: 0 auto;
+  padding-right: 1rem;
+  padding-left: 1rem;
+}
+
+main {
+  padding-top: 2rem;
+  padding-bottom: 3rem;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  animation: rise 360ms var(--ease) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (min-width: 40rem) {
+  .bar {
+    padding: 0 1.5rem;
+  }
+  main {
+    padding-top: 4rem;
+  }
+  .card {
+    padding: 1.75rem;
+  }
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+h2 {
+  margin: 1.5rem 0 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+p,
+ul {
+  margin: 0 0 1rem;
+}
+
+strong {
+  font-weight: 600;
+}
+
+ul {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  position: relative;
+  padding-left: 1.5rem;
+  color: var(--muted);
+}
+
+li::before {
+  content: "";
+  position: absolute;
+  top: 0.45em;
+  left: 0.125rem;
+  width: 0.4rem;
+  height: 0.7rem;
+  border: solid var(--ok);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.host {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.alert,
+.warn {
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+}
+
+.alert {
+  border-color: var(--alert-line);
+  background: var(--alert-bg);
+  color: var(--alert);
+  font-weight: 500;
+}
+
+.warn {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* ---- forms */
+
+form {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+label {
+  font-weight: 500;
+}
+
+input[type="email"],
+input[type="password"] {
+  display: block;
+  width: 100%;
+  height: 2.5rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+input:hover {
+  border-color: var(--line-strong);
+}
+
+input:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
+}
+
+@media (min-width: 40rem) {
+  input[type="email"],
+  input[type="password"] {
+    font-size: 14px;
+  }
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 3%);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    transform 150ms;
+}
+
+.button:hover {
+  border-color: var(--line-strong);
+  background: var(--hover);
+}
+
+.button:active {
+  transform: scale(0.98);
+}
+
+.button.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.button.primary:hover {
+  opacity: 0.9;
+}
+
+.button.wide {
+  width: 100%;
+}
+
+.stack {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0;
+}
+
+.actions .button {
+  flex: 1 1 8rem;
+}
+
+/* A POST button and a link button sit together as one group. */
+.actions + .actions {
+  margin-top: 0.5rem;
+}
+
+.or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.or::before,
+.or::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+.logo {
+  width: 18px;
+  height: 18px;
+}
+
+/* "Use the access code instead": a quiet disclosure row. */
+details {
+  margin: 1.25rem -1.5rem -1.5rem;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 12px;
+  background: var(--subtle);
+}
+
+details form {
+  margin: 0;
+  padding: 0 1.5rem 1.5rem;
+}
+
+summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.5rem;
+  color: var(--muted);
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  transition: color 150ms;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: 0.25rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 200ms var(--ease);
+}
+
+details[open] summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+summary:hover {
+  color: var(--fg);
+}
+
+@media (min-width: 40rem) {
+  details {
+    margin: 1.25rem -1.75rem -1.75rem;
+  }
+  details form {
+    padding: 0 1.75rem 1.75rem;
+  }
+  summary {
+    padding: 0.875rem 1.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

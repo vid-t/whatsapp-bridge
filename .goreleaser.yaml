@@ -1,0 +1,50 @@
+# Release build for whatsapp-bridge, run by .github/workflows/release.yml on a v* tag
+# (goreleaser release --clean). Local dry run:
+#   goreleaser release --snapshot --clean
+# The container image is built by the workflow, not here.
+version: 2
+
+project_name: whatsapp-bridge
+
+before:
+  hooks:
+    # The web UI is embedded in the binary: build it first.
+    - npm --prefix web ci --no-audit --no-fund
+    - npm --prefix web run build
+
+builds:
+  - id: whatsapp-bridge
+    main: ./cmd/whatsapp-bridge
+    binary: whatsapp-bridge
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: whatsapp-bridge
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - deploy/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

@@ -1,0 +1,2 @@
+# The web UI build is generated from web/ and embedded in the binary.
+internal/web/assets/dist/** linguist-generated=true -diff

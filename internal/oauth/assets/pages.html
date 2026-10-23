@@ -1,0 +1,101 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · {{.Name}}</title>
+<link rel="stylesheet" href="{{.CSS}}">
+</head>
+<body>
+<header class="top"><div class="bar"><span class="brand">whatsapp-bridge</span>{{if ne .Name "whatsapp-bridge"}}<span class="sep" aria-hidden="true"></span><span class="name">{{.Name}}</span>{{end}}{{end}}
+
+{{define "open"}}</div></header>
+<main class="shell">
+<section class="card" aria-labelledby="title">
+{{end}}
+
+{{define "crumb"}}<span class="sep" aria-hidden="true"></span><span class="crumb">{{.}}</span>{{end}}
+
+{{define "foot"}}</section>
+</main>
+</body>
+</html>
+{{end}}
+
+{{define "logo"}}{{if eq . "google"}}<svg class="logo" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33Z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z"/></svg>{{else if eq . "microsoft"}}<svg class="logo" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="#F25022" d="M0 0h8.5v8.5H0z"/><path fill="#7FBA00" d="M9.5 0H18v8.5H9.5z"/><path fill="#00A4EF" d="M0 9.5h8.5V18H0z"/><path fill="#FFB900" d="M9.5 9.5H18V18H9.5z"/></svg>{{end}}{{end}}
+
+{{define "hidden"}}<input type="hidden" name="response_type" value="{{.ResponseType}}">
+<input type="hidden" name="client_id" value="{{.ClientID}}">
+<input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+{{if .State}}<input type="hidden" name="state" value="{{.State}}">
+{{end}}<input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+<input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+{{if .Scope}}<input type="hidden" name="scope" value="{{.Scope}}">
+{{end}}{{if .Resource}}<input type="hidden" name="resource" value="{{.Resource}}">
+{{end}}{{end}}
+
+{{define "who"}}{{if .Document}}Identity published by {{.ClientHost}}.{{else}}The app gave this name itself; it is not verified.{{end}}{{end}}
+
+{{define "signin"}}{{template "head" .}}{{template "crumb" "Connect an assistant"}}{{template "open"}}
+<h1 id="title">Sign in to {{.Name}}</h1>
+<p><strong>{{.ClientName}}</strong> wants to read the WhatsApp chats shared through this bridge.</p>
+<p class="meta">{{template "who" .}}</p>
+<p>{{if .Email}}Sign in with your email{{if .Providers}} or your account{{end}}.{{else if .Providers}}Sign in with your account.{{else}}Enter the access code.{{end}} You will be asked to approve the app next.</p>
+{{if .Error}}<p class="alert" role="alert">{{.Error}}</p>
+{{end}}{{if .Email}}<form method="post" action="/auth/email/start">
+<input type="hidden" name="next" value="{{.Next}}">
+<label for="email">Email</label>
+<input id="email" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="you@example.org" required{{if not .Error}} autofocus{{end}}>
+<button type="submit" class="button primary wide">Email me a sign-in link</button>
+<p class="meta hint">Open the link from the email in this browser to continue.</p>
+</form>
+{{end}}{{if .Providers}}{{if .Email}}<p class="or">or</p>
+{{end}}<div class="stack">
+{{range .Providers}}<a class="button wide" href="{{.URL}}">{{template "logo" .Name}}{{.Label}}</a>
+{{end}}</div>
+{{end}}{{if or .Email .Providers}}<details{{if .Error}} open{{end}}>
+<summary>Use the access code instead</summary>
+{{end}}<form method="post" action="/oauth/authorize">
+{{template "hidden" .Req}}<input type="hidden" name="action" value="login">
+<label for="access_code">Access code</label>
+<input id="access_code" name="access_code" type="password" autocomplete="current-password" spellcheck="false" autocapitalize="off" required{{if or (not .Email) .Error}} autofocus{{end}}>
+<button type="submit" class="button wide{{if not (or .Email .Providers)}} primary{{end}}">Sign in</button>
+</form>
+{{if or .Email .Providers}}</details>
+{{end}}{{template "foot" .}}{{end}}
+
+{{define "notice"}}{{template "head" .}}{{with .Notice.Eyebrow}}{{template "crumb" .}}{{end}}{{template "open"}}
+{{with .Notice}}<h1 id="title">{{breakable .Heading}}</h1>
+{{if .Message}}<p>{{.Message}}</p>
+{{end}}{{if .Detail}}<p class="meta">{{.Detail}}</p>
+{{end}}{{if .Action}}<form method="post" action="{{.Action}}" class="actions">
+<button type="submit" class="button primary">{{.ActionLabel}}</button>
+</form>
+{{end}}{{if .Link}}<p class="actions"><a class="button" href="{{.Link}}">{{.LinkLabel}}</a></p>
+{{end}}{{end}}{{template "foot" .}}{{end}}
+
+{{define "consent"}}{{template "head" .}}{{template "crumb" "Connect an assistant"}}{{template "open"}}
+<h1 id="title">Allow {{.ClientName}} to read the shared chats?</h1>
+<p>After you choose, you will be sent back to <strong class="host">{{.RedirectHost}}</strong>.</p>
+<p class="meta">{{template "who" .}}</p>
+{{if .Loopback}}<p class="warn">This app runs on a computer, not a website: the approval goes to a program listening on this machine ({{.RedirectHost}}). Continue only if you started this connection yourself, just now, from a program on this computer.</p>
+{{end}}<h2>What the app gets</h2>
+<ul>
+<li>Read-only access to the chats this bridge stores; it can never send. Only chats ticked on the bridge are visible to it.</li>
+<li>It cannot change or delete anything, and it never sees the access code.</li>
+<li>Access renews itself while the app uses it and ends after 30 days without use. Revoke it any time on the bridge.</li>
+</ul>
+<form method="post" action="/oauth/authorize" class="actions">
+{{template "hidden" .Req}}<button type="submit" name="action" value="allow" class="button primary">Allow</button>
+<button type="submit" name="action" value="deny" class="button">Deny</button>
+</form>
+{{template "foot" .}}{{end}}
+
+{{define "error"}}{{template "head" .}}{{template "crumb" "Connect an assistant"}}{{template "open"}}
+<h1 id="title">{{breakable .Heading}}</h1>
+<p>{{.Message}}</p>
+<p class="meta">Nothing was shared with the app. Go back to the app and start connecting again.</p>
+{{template "foot" .}}{{end}}
