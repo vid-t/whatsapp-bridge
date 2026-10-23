@@ -2,7 +2,7 @@
 # Installs or upgrades whatsapp-bridge on Ubuntu 24.04 or Debian 12, behind Caddy
 # (automatic HTTPS). Run it as root on the server:
 #
-#   curl -fsSL https://raw.githubusercontent.com/vid-t/whatsapp-bridge/main/deploy/get-whatsapp-bridge.sh | DOMAIN=bridge.example.com sudo -E bash
+#   curl -fsSL https://raw.githubusercontent.com/vid-t/whatsapp-bridge/main/deploy/get-whatsapp-bridge.sh | sudo DOMAIN=bridge.example.com bash
 #
 # DOMAIN   the public hostname. Its DNS record must point at this server so
 #          Caddy can get a certificate. Required on the first install; on an
@@ -157,7 +157,7 @@ EOF
 
 main() {
   local domain="${DOMAIN:-}" version="${VERSION:-}" first=1 arch tag ver asset url tmp addr keys ok hosts
-  [ "$(id -u)" -eq 0 ] || die "run as root: curl -fsSL <this script's URL> | DOMAIN=bridge.example.com sudo -E bash"
+  [ "$(id -u)" -eq 0 ] || die "run as root: curl -fsSL <this script's URL> | sudo DOMAIN=bridge.example.com bash"
   command -v systemctl >/dev/null 2>&1 || die "systemd is required"
   command -v apt-get >/dev/null 2>&1 || die "this installer supports Ubuntu 24.04 and Debian 12 (apt-get not found)"
   [ -f "$ENV_FILE" ] && first=0

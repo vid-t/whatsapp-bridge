@@ -60,7 +60,7 @@ containers read it; the bridge is reachable only through Caddy. Logs:
 On Ubuntu 24.04 or Debian 12, as a user with sudo:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/vid-t/whatsapp-bridge/main/deploy/get-whatsapp-bridge.sh | DOMAIN=bridge.yourdomain.com sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/vid-t/whatsapp-bridge/main/deploy/get-whatsapp-bridge.sh | sudo DOMAIN=bridge.yourdomain.com bash
 ```
 
 To read the script first, download it with `curl -fsSLO <same URL>`, then run
