@@ -39,6 +39,17 @@ whatsapp-bridge never sends anything to WhatsApp on the user's behalf. It has no
 presence ("online") and no read receipts, and its MCP tools cannot change or delete
 messages. Open an issue before working on anything that would change that.
 
+## Dependencies
+
+- `go.mau.fi/whatsmeow` (MPL-2.0) speaks the WhatsApp Web protocol. It has no tagged
+  releases, so it is pinned by commit: bump it monthly and re-test pairing.
+- `go.mau.fi/libsignal` (GPL-3.0) does the end-to-end encryption. Linking it is why the
+  project needs a GPL-compatible licence.
+- `github.com/ncruces/go-sqlite3` (MIT) is a pure-Go SQLite, with `vfs/adiantum` for
+  encryption at rest, so the build needs no cgo.
+- `github.com/modelcontextprotocol/go-sdk` (MIT and Apache-2.0) serves MCP;
+  `github.com/skip2/go-qrcode` (MIT) draws the pairing QR code.
+
 ## Licence of contributions
 
 whatsapp-bridge is AGPL-3.0-only. By opening a pull request you agree that your contribution

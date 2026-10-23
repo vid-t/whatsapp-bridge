@@ -236,7 +236,7 @@ main() {
       cat > "$ENV_FILE.tmp" <<EOF
 # whatsapp-bridge settings, read by whatsapp-bridge.service. Keep this file secret and
 # back it up: BRIDGE_DB_KEY decrypts the database (without it the data cannot be
-# read) and BRIDGE_ACCESS_CODE opens the web UI. All settings: README.md.
+# read) and BRIDGE_ACCESS_CODE opens the web UI. All settings: docs/CONFIGURATION.md.
 BRIDGE_ADDR=127.0.0.1:8080
 BRIDGE_DATA_DIR=$DATA_DIR
 BRIDGE_ALLOWED_HOSTS=$DOMAIN

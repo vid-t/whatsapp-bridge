@@ -36,6 +36,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - docs/*
       - deploy/*
 
 checksum:

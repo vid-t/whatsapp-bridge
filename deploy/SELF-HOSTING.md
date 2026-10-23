@@ -111,8 +111,8 @@ then restart the bridge (`sudo systemctl restart whatsapp-bridge` or `docker com
   `https://<your domain>/auth/google/callback` (or `/auth/microsoft/callback`) as the
   redirect URI with the provider.
 
-[`whatsapp-bridge-env.example`](whatsapp-bridge-env.example) lists them with examples, and the
-README's Configuration table describes every setting.
+[`whatsapp-bridge-env.example`](whatsapp-bridge-env.example) lists them with examples, and
+[`docs/CONFIGURATION.md`](../docs/CONFIGURATION.md) describes every setting.
 
 ## Upgrade
 
