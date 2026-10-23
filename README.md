@@ -2,7 +2,7 @@
 
 # whatsapp-bridge
 
-**Ask your AI assistant about your WhatsApp chats. Self-hosted and read-only.**
+**A self-hosted bridge & seutp gateaway built on top of whats-meow for storing and accessing your raw whatsapp data**
 
 [![CI](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-only](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
@@ -10,13 +10,7 @@
 </div>
 
 whatsapp-bridge links to your WhatsApp as an extra device, the way WhatsApp Web does. It keeps
-the chats you choose in an encrypted database on your own server. Claude, ChatGPT, Codex or
-any other MCP client can then search and read those chats when you ask. It never sends a
-message.
-
-> *"What delivery date did we agree with the supplier last week?"*
->
-> *"Find the lease PDF Maria sent and tell me what she said about it."*
+the chats you choose in an encrypted database on your own VPS, where you can serach the chats or query them using MCP. For now, it is read only. 
 
 ## How it works
 
@@ -28,15 +22,14 @@ flowchart LR
 ```
 
 1. **Link.** On your phone, open **Settings › Linked devices › Link a device** and scan the
-   QR code. The bridge now receives your messages like any other linked device.
-2. **Tick.** Choose which chats it keeps. New chats start ticked: untick the ones you want
-   left out, and the bridge deletes what it stored for them.
+   QR code. The bridge now receives your messages like any other linked device in WhatsApp.
+2. **Tick.** Choose only which chats it keeps.
 3. **Ask.** Connect your assistant to `https://<your server>/mcp` and sign in. It searches
    and reads your ticked chats when it needs to, and cites every message it uses.
 
 ## Try it locally
 
-You need Go 1.27 or newer. The web UI is built into the binary.
+Go 1.27 or newer. The web UI is built into the binary.
 
 ```sh
 git clone https://github.com/vid-t/whatsapp-bridge.git && cd whatsapp-bridge
