@@ -1,0 +1,19 @@
+# Build context for the Dockerfile: sources only, never data or secrets.
+.git
+.github
+**/node_modules
+# Rebuilt from web/ in the first stage; the committed copy must not mix in.
+internal/web/assets/dist
+bin/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+**/*.env
+**/*-env
+deploy/
+docs/
+Dockerfile
+.dockerignore
+.goreleaser.yaml

@@ -1,0 +1,465 @@
+/* whatsapp-bridge web UI: shadcn/ui on Tailwind v4. A neutral scale with one
+   accent (a cool blue for focus, links, live changes and the pairing clock),
+   light and dark. Fonts: Geist and Geist Mono, bundled (SIL OFL 1.1, see
+   static/fonts-OFL-*.txt). No @import from outside: everything ships in the
+   bundle, under the bridge's CSP. */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --radius: 0.5rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.49 0 0);
+  --accent: oklch(0.963 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.53 0.21 27);
+  --destructive-solid: oklch(0.55 0.22 27);
+  --border: oklch(0.922 0 0);
+  --border-strong: oklch(0.85 0 0);
+  --input: oklch(0.885 0 0);
+  --ring: oklch(0.55 0.2 257);
+  --live: oklch(0.55 0.2 257);
+  --success: oklch(0.64 0.17 150);
+  --success-foreground: oklch(0.47 0.12 150);
+  --warning: oklch(0.76 0.16 72);
+  --warning-foreground: oklch(0.5 0.11 65);
+  --subtle: oklch(0.985 0 0);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.17 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.19 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.96 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.25 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.72 0.17 22);
+  --destructive-solid: oklch(0.52 0.19 25);
+  --border: oklch(1 0 0 / 10%);
+  --border-strong: oklch(1 0 0 / 18%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.14 252);
+  --live: oklch(0.72 0.14 252);
+  --success: oklch(0.72 0.17 152);
+  --success-foreground: oklch(0.8 0.14 152);
+  --warning: oklch(0.8 0.15 80);
+  --warning-foreground: oklch(0.84 0.12 82);
+  --subtle: oklch(0.155 0 0);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-solid: var(--destructive-solid);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-live: var(--live);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-subtle: var(--subtle);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ------------------------------------------------------------------ base */
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  html[data-scroll-locked] {
+    overflow: hidden;
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    font-feature-settings: "ss01" off;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    caret-color: var(--ring);
+  }
+  #root {
+    isolation: isolate;
+    display: flex;
+    min-height: 100dvh;
+    flex-direction: column;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--ring) 24%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Headings take focus on navigation for screen readers; no ring on them. */
+  [data-page-title]:focus,
+  #main:focus {
+    outline: none;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+  table,
+  time,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  [hidden] {
+    display: none !important;
+  }
+}
+
+/* ------------------------------------------------------------- utilities */
+
+@utility container-page {
+  width: 100%;
+  max-width: 70rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 1.5rem;
+  }
+}
+
+/* A link inside prose: the accent, underlined on hover. */
+@utility link {
+  color: var(--live);
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklch, var(--live) 35%, transparent);
+  transition: text-decoration-color 150ms;
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sharpen {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: scale(0.97);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: var(--len, 40);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  80%,
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A page's content rises into place. */
+.page-enter {
+  animation: rise 320ms var(--ease-out-expo) both;
+}
+
+/* List and table rows arrive one after another (24 ms apart, capped). */
+.row-enter {
+  animation: row-in 300ms var(--ease-out-expo) both;
+  animation-delay: calc(min(var(--i, 0), 14) * 24ms);
+}
+
+.fade-enter {
+  animation: fade 200ms ease-out both;
+}
+
+/* The QR code (and each new one) comes into focus. */
+.sharpen-enter {
+  animation: sharpen 420ms var(--ease-out-expo) both;
+}
+
+.pop-enter {
+  animation: pop 460ms var(--ease-out-expo) both;
+}
+
+.draw-path {
+  stroke-dasharray: var(--len, 40);
+  animation: draw 480ms var(--ease-out-expo) 120ms both;
+}
+
+/* Skeletons shimmer instead of spinning. */
+.skeleton {
+  background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklch, var(--foreground) 6%, transparent) 50%,
+      transparent 100%
+    )
+    var(--muted);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* A status dot; in-progress dots send out a soft ring. */
+.status-dot {
+  position: relative;
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--dot, var(--muted-foreground));
+}
+.status-dot[data-tone="ok"] {
+  --dot: var(--success);
+}
+.status-dot[data-tone="warn"] {
+  --dot: var(--warning);
+}
+.status-dot[data-tone="bad"] {
+  --dot: var(--destructive);
+}
+.status-dot[data-tone="off"] {
+  --dot: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+}
+.status-dot[data-live]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dot);
+  animation: ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* The checkbox tick draws itself. */
+.check-path {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  transition: stroke-dashoffset 120ms ease-in;
+}
+[data-state="checked"] > * > .check-path,
+[data-state="checked"] .check-path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 260ms var(--ease-out-expo) 40ms;
+}
+
+/* Copy buttons cross-blur between their icons. */
+.swap-icon {
+  transition:
+    opacity 180ms ease,
+    transform 220ms var(--ease-out-expo),
+    filter 180ms ease;
+}
+.swap-icon[data-on="false"] {
+  opacity: 0;
+  transform: scale(0.6);
+  filter: blur(3px);
+}
+
+/* The header's tab indicator and hover pill glide between tabs. */
+.tab-glide[data-ready] {
+  transition:
+    transform 260ms var(--ease-out-expo),
+    width 260ms var(--ease-out-expo),
+    opacity 150ms ease;
+}
+
+/* The palette cross-fades when the theme changes. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: ease;
+}
+
+/* Responsive tables: on a phone each row becomes a compact block: the
+   primary cell and the actions on the first line, the other cells as small
+   labelled facts below, indented under the name (--meta-indent). */
+@media (width < 40rem) {
+  .rtable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .rtable,
+  .rtable tbody {
+    display: block;
+  }
+  .rtable tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.75rem;
+    row-gap: 0.25rem;
+    padding: 0.75rem 1rem;
+  }
+  .rtable :is(th, td) {
+    display: block;
+    height: auto;
+    padding: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .rtable tr > [data-primary] {
+    order: 1;
+    flex: 1 1 calc(100% - 6.5rem);
+    min-width: 0;
+  }
+  .rtable tr > [data-actions] {
+    order: 2;
+    width: auto;
+    flex: none;
+    margin-left: auto;
+  }
+  .rtable tr > [data-actions="end"] {
+    order: 4;
+    flex-basis: 100%;
+    padding-top: 0.5rem;
+    padding-left: var(--meta-indent, 0);
+  }
+  .rtable tr > td[data-label] {
+    order: 3;
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+  }
+  .rtable tr > [data-primary] + td[data-label] {
+    padding-left: var(--meta-indent, 0);
+  }
+  .rtable tr > td[data-label]::before {
+    content: attr(data-label) " ";
+    font-weight: 500;
+  }
+  .rtable tr > td[data-label][data-bare]::before {
+    content: none;
+  }
+  .rtable tr > td:empty {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton {
+    animation: none;
+  }
+  .status-dot[data-live]::after {
+    display: none;
+  }
+}

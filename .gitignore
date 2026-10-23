@@ -1,0 +1,20 @@
+# Build output and local state
+/bin/
+/dist/
+/data/
+/whatsapp-bridge
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets from `whatsapp-bridge keygen` (the README writes them to whatsapp-bridge.env)
+*.env
+whatsapp-bridge-env
+
+# Web UI tooling
+node_modules/
+playwright-report/
+test-results/
+
+.DS_Store
+*.log

@@ -1,0 +1,51 @@
+# whatsapp-bridge settings for docker-compose.yml (deploy/SELF-HOSTING.md, path B).
+# Save this file as whatsapp-bridge-env next to docker-compose.yml, then:
+#   1. Put your domain in place of bridge.example.com (three lines below):
+#        sed -i 's/bridge.example.com/bridge.yourdomain.com/' whatsapp-bridge-env
+#   2. Add the two secrets at the end of this file and lock it down:
+#        docker run --rm ghcr.io/vid-t/whatsapp-bridge keygen >> whatsapp-bridge-env
+#        chmod 600 whatsapp-bridge-env
+# Keep this file secret and back it up. BRIDGE_DB_KEY decrypts the database:
+# without it the data cannot be read. BRIDGE_ACCESS_CODE opens the web UI.
+# Do not set BRIDGE_ADDR or BRIDGE_DATA_DIR here: the image sets them.
+
+# The public hostname. Caddy gets a certificate for it; DNS must point at this server.
+DOMAIN=bridge.example.com
+
+# Same hostname: the Host header the bridge accepts, and the https URL that AI
+# connectors (claude.ai and others) connect to. It is also the OAuth issuer.
+BRIDGE_ALLOWED_HOSTS=bridge.example.com
+BRIDGE_PUBLIC_URL=https://bridge.example.com
+
+# Shown in WhatsApp under Settings > Linked devices.
+BRIDGE_DEVICE_NAME=whatsapp-bridge
+# Shown in the web UI, sign-in pages, emails and to connected assistants.
+BRIDGE_NAME=whatsapp-bridge
+
+BRIDGE_LOG_LEVEL=info
+
+# Optional: email sign-in for other people. With BRIDGE_SMTP_HOST set, the sign-in
+# page offers "Email me a sign-in link"; people who are not members yet become
+# requests that BRIDGE_APPROVERS approve from an emailed link. 587 = STARTTLS, 465 = TLS.
+#BRIDGE_SMTP_HOST=smtp.example.com
+#BRIDGE_SMTP_PORT=587
+#BRIDGE_SMTP_USER=mail@example.com
+#BRIDGE_SMTP_PASSWORD="replace-me"
+#BRIDGE_MAIL_FROM="whatsapp-bridge <mail@example.com>"
+#BRIDGE_APPROVERS=you@example.com
+
+# Optional: "Continue with Google" / "Continue with Microsoft". A provider is on
+# when both its client id and secret are set. Redirect URIs to register:
+#   https://<your domain>/auth/google/callback and https://<your domain>/auth/microsoft/callback
+#BRIDGE_GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+#BRIDGE_GOOGLE_CLIENT_SECRET=replace-me
+#BRIDGE_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
+#BRIDGE_MICROSOFT_CLIENT_SECRET=replace-me
+#BRIDGE_MICROSOFT_TENANT=common
+# Email domains admitted without approval, comma-separated.
+#BRIDGE_ALLOWED_DOMAINS=example.com
+
+# Secrets, filled from `docker run --rm ghcr.io/vid-t/whatsapp-bridge keygen`.
+# Step 2 appends its two lines below; the server refuses to start without them:
+#   BRIDGE_DB_KEY=<64 hex characters>
+#   BRIDGE_ACCESS_CODE=<48 hex characters>

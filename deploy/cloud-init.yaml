@@ -1,0 +1,78 @@
+#cloud-config
+# One-click whatsapp-bridge server. Paste this file as "user data" (also called
+# "cloud-init" or "startup script") when you create an Ubuntu 24.04 or Debian 12
+# VPS at Hetzner, DigitalOcean, Vultr, Linode or any provider that accepts
+# user data.
+#
+# Edit exactly two values, marked EDIT 1 and EDIT 2 below.
+#
+# Before you boot: create the DNS record (A, and AAAA if the server has IPv6)
+# for your domain and point it at the server's IP. Caddy requests the HTTPS
+# certificate on first boot and cannot get one while DNS points elsewhere.
+#
+# After first boot (progress in /var/log/cloud-init-output.log): open
+# https://<your domain> and sign in with the access code. Read it with:
+#   ssh admin@<server> sudo grep '^BRIDGE_ACCESS_CODE=' /etc/whatsapp-bridge/whatsapp-bridge-env
+#
+# The box gets a non-root "admin" user with your key, key-only SSH without root
+# login, unattended security updates, a firewall open on 22, 80 and 443 only,
+# Caddy, and whatsapp-bridge from the latest release (deploy/get-whatsapp-bridge.sh).
+# With content: "" as the domain it stops after the hardening and Caddy.
+
+write_files:
+  # EDIT 1: your domain, e.g. bridge.yourdomain.com
+  - path: /etc/whatsapp-bridge/domain
+    content: bridge.example.com
+  - path: /etc/ssh/sshd_config.d/00-hardening.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+
+users:
+  - name: admin
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      # EDIT 2: your SSH public key, the one line in ~/.ssh/id_ed25519.pub
+      - ssh-ed25519 AAAA...replace-me
+
+ssh_pwauth: false
+disable_root: true
+package_update: true
+package_upgrade: true
+packages:
+  - unattended-upgrades
+  - ufw
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+
+runcmd:
+  - sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/; s/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - systemctl restart ssh
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+  - dpkg-reconfigure -f noninteractive unattended-upgrades
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update && apt-get install -y caddy
+  # - curl -fsSL https://tailscale.com/install.sh | sh && tailscale up --ssh
+  # whatsapp-bridge: last, so the steps above run even if it fails.
+  - |
+    DOMAIN="$(tr -d '[:space:]' < /etc/whatsapp-bridge/domain)"
+    if [ -n "$DOMAIN" ]; then
+      curl -fsSL --retry 5 -o /root/get-whatsapp-bridge.sh https://raw.githubusercontent.com/vid-t/whatsapp-bridge/main/deploy/get-whatsapp-bridge.sh &&
+        DOMAIN="$DOMAIN" bash /root/get-whatsapp-bridge.sh
+    else
+      echo "whatsapp-bridge: no domain in /etc/whatsapp-bridge/domain; hardening and Caddy only"
+    fi

@@ -1,0 +1,20 @@
+# Caddy in front of whatsapp-bridge for docker-compose.yml. DOMAIN comes from
+# whatsapp-bridge-env. Caddy obtains and renews the certificate and forwards the
+# original Host header, which the bridge checks against BRIDGE_ALLOWED_HOSTS.
+{$DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy whatsapp-bridge:8080 {
+		# Long-lived server-sent events: do not buffer, do not time out early.
+		flush_interval -1
+		transport http {
+			read_timeout 0
+		}
+	}
+}
