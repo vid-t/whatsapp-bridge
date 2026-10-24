@@ -104,6 +104,8 @@ type Manager struct {
 	baseCtx context.Context
 	cancel  context.CancelFunc
 	fts     bool // full-text index available
+
+	hold *holdBuffer // messages for unticked chats after linking, in memory only
 }
 
 // NewManager prepares the whatsmeow store (running its migrations), creates
@@ -126,6 +128,7 @@ func NewManager(ctx context.Context, db *sql.DB, log *slog.Logger, opts Options)
 		subs:     map[int]chan Event{},
 		baseCtx:  baseCtx,
 		cancel:   cancel,
+		hold:     newHoldBuffer(),
 	}
 	m.container = sqlstore.NewWithDB(db, "sqlite3", newWALog(log, "sqlstore"))
 	if err := m.container.Upgrade(ctx); err != nil {
@@ -190,9 +193,11 @@ func (m *Manager) Start() {
 	}
 }
 
-// Close disconnects all clients. The database is left to the caller.
+// Close disconnects all clients and drops held messages. The database is
+// left to the caller.
 func (m *Manager) Close() {
 	m.cancel()
+	m.hold.dropAll()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, s := range m.sessions {
@@ -341,6 +346,7 @@ func (m *Manager) snapshot(s *session) SessionInfo {
 	}
 	s.mu.Unlock()
 	info.MessageCount, info.ChatCount, info.LastMessageAt = m.counts(m.ctx(5*time.Second), s.id)
+	info.HoldUntil = m.hold.until(s.id)
 	return info
 }
 
@@ -685,6 +691,7 @@ func (m *Manager) teardown(ctx context.Context, s *session, how string) error {
 	if cli != nil {
 		cli.Disconnect()
 	}
+	m.endHold(s.id, "account removed")
 	if dev != nil && dev.ID != nil {
 		if err := m.container.DeleteDevice(ctx, dev); err != nil {
 			// Already deleted by whatsmeow's Logout, or never saved.
@@ -709,6 +716,7 @@ func (m *Manager) eventHandler(s *session) whatsmeow.EventHandler {
 		case *events.PairSuccess:
 			_ = m.setSessionJID(m.ctx(5*time.Second), s.id, e.ID.String())
 			m.appendLog(m.ctx(5*time.Second), s.id, "pair.success", e.Platform)
+			m.openHold(s.id)
 			if s.getMode() == pairPhone {
 				// The QR loop publishes success for QR pairing; the code flow
 				// has no channel loop, so publish it here and end the step stream.
@@ -796,9 +804,6 @@ func (m *Manager) ingestMessage(s *session, e *events.Message) {
 	}
 	chat := m.canonicalChat(s, info)
 	ctx := m.ctx(10 * time.Second)
-	if !m.chatTicked(ctx, s.id, chat.String()) {
-		return
-	}
 	msg := Message{
 		SessionID:  s.id,
 		ChatJID:    chat.String(),
@@ -810,14 +815,33 @@ func (m *Manager) ingestMessage(s *session, e *events.Message) {
 		Kind:       kind,
 		Text:       text,
 	}
+	name := ""
+	if !info.IsGroup && !info.IsFromMe {
+		name = info.PushName
+	}
+	ticked, known := m.chatTicked(ctx, s.id, msg.ChatJID)
+	if !ticked {
+		// Unticked or new: keep a row so the chat can be found and ticked,
+		// with its name and last activity only. The message is held in
+		// memory while the account's window is open; otherwise it is dropped.
+		if err := m.upsertChat(ctx, s.id, msg.ChatJID, name, info.IsGroup, &msg.Timestamp); err != nil {
+			m.log.Warn("list chat", "session", s.id, "err", err)
+		}
+		if res, _, refused := m.hold.add(s.id, msg.ChatJID, []Message{msg}); res != holdTicked {
+			if refused > 0 {
+				m.log.Warn("held-message memory cap reached; message not held", "session", s.id)
+			}
+			if !known {
+				m.publish(Event{SessionID: s.id, Type: EventChats, Text: "new chat"})
+			}
+			return
+		}
+		// Ticked while the message was on its way in: store it after all.
+	}
 	inserted, err := insertMessage(ctx, m.db, msg)
 	if err != nil {
 		m.log.Warn("store message", "session", s.id, "err", err)
 		return
-	}
-	name := ""
-	if !info.IsGroup && !info.IsFromMe {
-		name = info.PushName
 	}
 	_ = m.upsertChat(ctx, s.id, msg.ChatJID, name, info.IsGroup, &msg.Timestamp)
 	_ = m.recountChat(ctx, s.id, msg.ChatJID)
@@ -834,7 +858,7 @@ func (m *Manager) ingestHistory(s *session, data *waHistorySync.HistorySync) {
 	}
 	ctx := m.ctx(10 * time.Minute)
 	convs := data.GetConversations()
-	var newMsgs int
+	var newMsgs, held, notHeld int
 	var ownJID string
 	s.mu.Lock()
 	if s.dev != nil && s.dev.ID != nil {
@@ -854,74 +878,137 @@ func (m *Manager) ingestHistory(s *session, data *waHistorySync.HistorySync) {
 				jid = m.lidToPN(s, jid)
 			}
 		}
+		chatJID := jid.String()
 		isGroup := jid.Server == types.GroupServer
 		name := c.GetName()
 		if name == "" {
 			name = c.GetDisplayName()
 		}
-		if !m.chatTicked(ctx, s.id, jid.String()) {
-			_ = m.upsertChat(ctx, s.id, jid.String(), name, isGroup, nil)
-			continue
+		msgs := m.historyMessages(s, jid, ownJID, c)
+		if ticked, _ := m.chatTicked(ctx, s.id, chatJID); !ticked {
+			// A row for the chat list only. The messages are held in memory
+			// while the account's window is open, and never written unless
+			// the chat is ticked in time.
+			if err := m.upsertChat(ctx, s.id, chatJID, name, isGroup, lastActivity(c, msgs)); err != nil {
+				m.log.Warn("list chat", "session", s.id, "err", err)
+			}
+			res, kept, refused := m.hold.add(s.id, chatJID, msgs)
+			held += kept
+			notHeld += refused
+			if res != holdTicked {
+				continue
+			}
+			// Ticked while this batch was being read: store it after all.
 		}
-		tx, err := m.db.BeginTx(ctx, nil)
+		n, err := m.writeMessages(ctx, msgs)
 		if err != nil {
-			m.log.Warn("history tx", "err", err)
-			return
+			m.log.Warn("store history", "session", s.id, "err", err)
 		}
-		for _, hm := range c.GetMessages() {
-			w := hm.GetMessage()
-			if w == nil || w.GetMessage() == nil {
-				continue
-			}
-			kind, text := extractText(w.GetMessage())
-			if kind == "protocol" || kind == "reaction" {
-				continue
-			}
-			key := w.GetKey()
-			sender := key.GetParticipant()
-			if sender == "" {
-				sender = w.GetParticipant()
-			}
-			if sender == "" {
-				if key.GetFromMe() {
-					sender = ownJID
-				} else {
-					sender = jid.String()
-				}
-			}
-			if sj, err := types.ParseJID(sender); err == nil {
-				if sj.Server == types.HiddenUserServer {
-					sj = m.lidToPN(s, sj)
-				}
-				sender = sj.ToNonAD().String()
-			}
-			msg := Message{
-				SessionID:  s.id,
-				ChatJID:    jid.String(),
-				ID:         key.GetID(),
-				SenderJID:  sender,
-				SenderName: w.GetPushName(),
-				Timestamp:  time.Unix(int64(w.GetMessageTimestamp()), 0).UTC(),
-				FromMe:     key.GetFromMe(),
-				Kind:       kind,
-				Text:       text,
-			}
-			if ok, err := insertMessage(ctx, tx, msg); err == nil && ok {
-				newMsgs++
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			m.log.Warn("history commit", "err", err)
-		}
-		_ = m.upsertChat(ctx, s.id, jid.String(), name, isGroup, nil)
-		_ = m.recountChat(ctx, s.id, jid.String())
+		newMsgs += n
+		_ = m.upsertChat(ctx, s.id, chatJID, name, isGroup, nil)
+		_ = m.recountChat(ctx, s.id, chatJID)
 	}
-	detail := fmt.Sprintf("type=%s conversations=%d new_messages=%d progress=%d", data.GetSyncType(), len(convs), newMsgs, data.GetProgress())
+	if notHeld > 0 {
+		m.log.Warn("held-message memory cap reached; the rest of this batch is not held", "session", s.id, "messages", notHeld)
+	}
+	detail := fmt.Sprintf("type=%s conversations=%d new_messages=%d held=%d progress=%d", data.GetSyncType(), len(convs), newMsgs, held, data.GetProgress())
+	if notHeld > 0 {
+		detail += fmt.Sprintf(" not_held=%d", notHeld)
+	}
 	m.appendLog(ctx, s.id, "history_sync", detail)
 	m.publish(Event{SessionID: s.id, Type: EventChats, Text: "history sync: " + detail})
 	if len(convs) > 0 {
 		go m.refreshDirectory(s)
 	}
+}
+
+// historyMessages converts one history-sync conversation into messages,
+// skipping protocol messages and reactions.
+func (m *Manager) historyMessages(s *session, jid types.JID, ownJID string, c *waHistorySync.Conversation) []Message {
+	var out []Message
+	for _, hm := range c.GetMessages() {
+		w := hm.GetMessage()
+		if w == nil || w.GetMessage() == nil {
+			continue
+		}
+		kind, text := extractText(w.GetMessage())
+		if kind == "protocol" || kind == "reaction" {
+			continue
+		}
+		key := w.GetKey()
+		sender := key.GetParticipant()
+		if sender == "" {
+			sender = w.GetParticipant()
+		}
+		if sender == "" {
+			if key.GetFromMe() {
+				sender = ownJID
+			} else {
+				sender = jid.String()
+			}
+		}
+		if sj, err := types.ParseJID(sender); err == nil {
+			if sj.Server == types.HiddenUserServer {
+				sj = m.lidToPN(s, sj)
+			}
+			sender = sj.ToNonAD().String()
+		}
+		out = append(out, Message{
+			SessionID:  s.id,
+			ChatJID:    jid.String(),
+			ID:         key.GetID(),
+			SenderJID:  sender,
+			SenderName: w.GetPushName(),
+			Timestamp:  time.Unix(int64(w.GetMessageTimestamp()), 0).UTC(),
+			FromMe:     key.GetFromMe(),
+			Kind:       kind,
+			Text:       text,
+		})
+	}
+	return out
+}
+
+// lastActivity is a conversation's newest message time, for sorting the
+// chat list; nil when unknown.
+func lastActivity(c *waHistorySync.Conversation, msgs []Message) *time.Time {
+	var last time.Time
+	for _, msg := range msgs {
+		if msg.Timestamp.After(last) {
+			last = msg.Timestamp
+		}
+	}
+	if last.IsZero() {
+		if ts := c.GetLastMsgTimestamp(); ts > 0 {
+			last = time.Unix(int64(ts), 0).UTC()
+		}
+	}
+	if last.IsZero() {
+		return nil
+	}
+	return &last
+}
+
+// ---- holding messages after linking -----------------------------------------
+
+// openHold starts the window after linking during which messages for
+// unticked chats are held in memory (see hold.go).
+func (m *Manager) openHold(sessionID string) {
+	until := m.hold.open(sessionID, func() { m.endHold(sessionID, "the window ended") })
+	m.log.Info("holding messages for unticked chats in memory until a chat is ticked or the window ends",
+		"session", sessionID, "until", until.UTC().Format(time.RFC3339))
+	m.publish(Event{SessionID: sessionID, Type: EventChats, Text: "holding messages for unticked chats"})
+}
+
+// endHold drops what an account's window held and logs how much, never what.
+func (m *Manager) endHold(sessionID, why string) {
+	st := m.hold.drop(sessionID)
+	if st.messages > 0 || st.refused > 0 {
+		m.log.Info("dropped held messages of unticked chats", "session", sessionID, "why", why,
+			"messages", st.messages, "chats", st.chats, "not_held_over_cap", st.refused)
+		m.appendLog(m.ctx(5*time.Second), sessionID, "history.dropped",
+			fmt.Sprintf("%d held messages of %d unticked chats dropped: %s", st.messages, st.chats, why))
+	}
+	m.publish(Event{SessionID: sessionID, Type: EventChats, Text: "held messages dropped"})
 }
 
 // ---- identity and naming ---------------------------------------------------

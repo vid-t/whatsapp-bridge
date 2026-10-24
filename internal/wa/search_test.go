@@ -7,19 +7,23 @@ import (
 	"time"
 )
 
+// seedChat creates a ticked chat with the given messages.
 func seedChat(t *testing.T, m *Manager, sid, jid, name string, texts ...string) {
 	t.Helper()
 	ctx := context.Background()
+	if err := m.upsertChat(ctx, sid, jid, name, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.tickChat(ctx, sid, jid, nil); err != nil {
+		t.Fatal(err)
+	}
 	base := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	for i, txt := range texts {
 		msg := Message{SessionID: sid, ChatJID: jid, ID: jid + "-" + string(rune('a'+i)), SenderJID: "1@s.whatsapp.net", SenderName: "Ana",
 			Timestamp: base.Add(time.Duration(i) * time.Minute), Kind: "text", Text: txt}
-		if _, err := insertMessage(ctx, m.db, msg); err != nil {
-			t.Fatal(err)
+		if ok, err := insertMessage(ctx, m.db, msg); err != nil || !ok {
+			t.Fatalf("insert into a ticked chat: ok=%v err=%v", ok, err)
 		}
-	}
-	if err := m.upsertChat(ctx, sid, jid, name, true, nil); err != nil {
-		t.Fatal(err)
 	}
 	if err := m.recountChat(ctx, sid, jid); err != nil {
 		t.Fatal(err)
@@ -91,8 +95,8 @@ func TestSearchFindTickContext(t *testing.T) {
 	if _, err := m.FindChat(ctx, "", "Atlas Team"); !errors.Is(err, ErrNoChat) {
 		t.Fatal("unticked chat still findable")
 	}
-	if m.chatTicked(ctx, sid, "g1@g.us") {
-		t.Fatal("chatTicked should be false")
+	if ticked, known := m.chatTicked(ctx, sid, "g1@g.us"); ticked || !known {
+		t.Fatalf("chatTicked = %v, %v; want false, true", ticked, known)
 	}
 	c, err = m.SetChatTicked(ctx, sid, "g1@g.us", true)
 	if err != nil || !c.Ticked {

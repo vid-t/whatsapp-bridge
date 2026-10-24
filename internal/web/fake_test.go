@@ -26,13 +26,14 @@ import (
 type fakeManager struct {
 	mu       sync.Mutex
 	sessions map[string]wa.SessionInfo
+	chats    map[string][]wa.Chat // per session
 	subs     map[int]chan wa.Event
 	next     int
 	pairErr  error
 }
 
 func newFakeManager() *fakeManager {
-	return &fakeManager{sessions: map[string]wa.SessionInfo{}, subs: map[int]chan wa.Event{}}
+	return &fakeManager{sessions: map[string]wa.SessionInfo{}, chats: map[string][]wa.Chat{}, subs: map[int]chan wa.Event{}}
 }
 
 func (f *fakeManager) put(id string, st wa.State) {
@@ -83,7 +84,11 @@ func (f *fakeManager) Session(id string) (wa.SessionInfo, error) {
 	return s, nil
 }
 
-func (f *fakeManager) Chats(context.Context, string) ([]wa.Chat, error) { return nil, nil }
+func (f *fakeManager) Chats(_ context.Context, sessionID string) ([]wa.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]wa.Chat(nil), f.chats[sessionID]...), nil
+}
 func (f *fakeManager) RecentMessages(context.Context, string, string, int) ([]wa.Message, error) {
 	return nil, nil
 }

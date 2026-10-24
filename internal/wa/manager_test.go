@@ -62,16 +62,23 @@ func TestPersistenceRoundTrip(t *testing.T) {
 
 	ts := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	msg := Message{SessionID: sid, ChatJID: "123@g.us", ID: "m1", SenderJID: "1@s.whatsapp.net", SenderName: "A", Timestamp: ts, Kind: "text", Text: "80 MT early November"}
-	ok, err := insertMessage(ctx, m.db, msg)
+	if err := m.upsertChat(ctx, sid, "123@g.us", "Atlas Team", true, &ts); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := insertMessage(ctx, m.db, msg) // a new chat starts unticked
+	if err != nil || ok {
+		t.Fatalf("insert into an unticked chat: ok=%v err=%v", ok, err)
+	}
+	if _, err := m.tickChat(ctx, sid, "123@g.us", nil); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = insertMessage(ctx, m.db, msg)
 	if err != nil || !ok {
 		t.Fatalf("insert: ok=%v err=%v", ok, err)
 	}
 	ok, err = insertMessage(ctx, m.db, msg) // duplicate is ignored
 	if err != nil || ok {
 		t.Fatalf("duplicate insert: ok=%v err=%v", ok, err)
-	}
-	if err := m.upsertChat(ctx, sid, "123@g.us", "Atlas Team", true, &ts); err != nil {
-		t.Fatal(err)
 	}
 	if err := m.upsertChat(ctx, sid, "123@g.us", "", true, nil); err != nil { // empty name must not overwrite
 		t.Fatal(err)

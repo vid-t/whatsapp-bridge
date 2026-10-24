@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"go.mau.fi/whatsmeow/types"
 
+	"github.com/vid-t/whatsapp-bridge/internal/auth"
 	"github.com/vid-t/whatsapp-bridge/internal/wa"
 )
 
@@ -284,6 +286,11 @@ func (s *server) listChats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err, http.StatusInternalServerError)
 		return
+	}
+	// A key (a script or an assistant) sees ticked chats only, like the MCP
+	// tools. The full list is for the people choosing what to share.
+	if auth.FromContext(r.Context()).Kind == auth.PrincipalKey {
+		chats = slices.DeleteFunc(chats, func(c wa.Chat) bool { return !c.Ticked })
 	}
 	writeJSON(w, http.StatusOK, orEmpty(chats))
 }
