@@ -74,35 +74,43 @@ export const LINKED_ID = "a1b2c3d4e5f60718";
 export const OWN_JID = "15550100000:3@s.whatsapp.net";
 const OWN = { phone: "15550100000", push_name: "Alex Morgan", platform: "iphone" };
 
-/** A personal account's chats: family, friends, a project group; some not shared. */
+/**
+ * A personal account's chats: family, friends, a project group. `ticked` is
+ * the owner's earlier choice on an account linked long ago; chats start
+ * unticked, so a fresh link has none ticked. `count` is how many messages the
+ * chat has: stored if ticked, or held in memory after a fresh link.
+ */
 export const CHATS = [
-  { jid: "120363000000000001@g.us", name: "Family", is_group: true, mins: 4, count: 214 },
-  { jid: "120363000000000002@g.us", name: "Project Atlas", is_group: true, mins: 38, count: 486 },
-  { jid: "15550100001@s.whatsapp.net", name: "Sam Lee", is_group: false, mins: 95, count: 57 },
-  { jid: "120363000000000006@g.us", name: "Weekend in Lisbon", is_group: true, mins: 140, count: 133 },
-  { jid: "120363000000000003@g.us", name: "Book club", is_group: true, mins: 210, count: 92 },
-  { jid: "15550100002@s.whatsapp.net", name: "Priya Shah", is_group: false, mins: 260, count: 41 },
-  { jid: "120363000000000004@g.us", name: "Climbing Thursdays", is_group: true, mins: 300, count: 77 },
-  { jid: "15550100005@s.whatsapp.net", name: "Mum", is_group: false, mins: 380, count: 128 },
-  { jid: "15550100003@s.whatsapp.net", name: "Jordan Kim", is_group: false, mins: 420, count: 23 },
-  { jid: "15550100006@s.whatsapp.net", name: "Ana García", is_group: false, mins: 900, count: 19 },
-  { jid: "120363000000000005@g.us", name: "Neighbours", is_group: true, mins: 2000, count: 0, ticked: false },
-  { jid: "120363000000000007@g.us", name: "School parents", is_group: true, mins: 2400, count: 0, ticked: false },
-  { jid: "15550100004@s.whatsapp.net", name: "Dentist", is_group: false, mins: 2600, count: 0, ticked: false },
-  { jid: "120363000000000008@g.us", name: "Five-a-side football", is_group: true, mins: 3100, count: 0, ticked: false },
-  { jid: "15550100007@s.whatsapp.net", name: "Chris Nguyen", is_group: false, mins: 4300, count: 12 },
-  { jid: "15550100008@s.whatsapp.net", name: "Taylor Brooks", is_group: false, mins: 7200, count: 0, ticked: false },
+  { jid: "120363000000000001@g.us", name: "Family", is_group: true, mins: 4, count: 214, ticked: true },
+  { jid: "120363000000000002@g.us", name: "Project Atlas", is_group: true, mins: 38, count: 486, ticked: true },
+  { jid: "15550100001@s.whatsapp.net", name: "Sam Lee", is_group: false, mins: 95, count: 57, ticked: true },
+  { jid: "120363000000000006@g.us", name: "Weekend in Lisbon", is_group: true, mins: 140, count: 133, ticked: true },
+  { jid: "120363000000000003@g.us", name: "Book club", is_group: true, mins: 210, count: 92, ticked: true },
+  { jid: "15550100002@s.whatsapp.net", name: "Priya Shah", is_group: false, mins: 260, count: 41, ticked: true },
+  { jid: "120363000000000004@g.us", name: "Climbing Thursdays", is_group: true, mins: 300, count: 77, ticked: true },
+  { jid: "15550100005@s.whatsapp.net", name: "Mum", is_group: false, mins: 380, count: 128, ticked: true },
+  { jid: "15550100003@s.whatsapp.net", name: "Jordan Kim", is_group: false, mins: 420, count: 23, ticked: true },
+  { jid: "15550100006@s.whatsapp.net", name: "Ana García", is_group: false, mins: 900, count: 19, ticked: true },
+  { jid: "120363000000000005@g.us", name: "Neighbours", is_group: true, mins: 2000, count: 0 },
+  { jid: "120363000000000007@g.us", name: "School parents", is_group: true, mins: 2400, count: 0 },
+  { jid: "15550100004@s.whatsapp.net", name: "Dentist", is_group: false, mins: 2600, count: 0 },
+  { jid: "120363000000000008@g.us", name: "Five-a-side football", is_group: true, mins: 3100, count: 0 },
+  { jid: "15550100007@s.whatsapp.net", name: "Chris Nguyen", is_group: false, mins: 4300, count: 12, ticked: true },
+  { jid: "15550100008@s.whatsapp.net", name: "Taylor Brooks", is_group: false, mins: 7200, count: 0 },
 ];
 
 /** A second, older account (a work phone) for a fuller accounts list. */
 export const WORK_CHATS = [
-  { jid: "120363000000000101@g.us", name: "Design team", is_group: true, mins: 2950, count: 612 },
-  { jid: "15550100101@s.whatsapp.net", name: "Riley Chen", is_group: false, mins: 3020, count: 88 },
-  { jid: "120363000000000102@g.us", name: "Quarterly planning", is_group: true, mins: 3300, count: 240 },
-  { jid: "120363000000000103@g.us", name: "Office", is_group: true, mins: 4100, count: 0, ticked: false },
-  { jid: "15550100102@s.whatsapp.net", name: "Morgan Park", is_group: false, mins: 5000, count: 344 },
-  { jid: "120363000000000104@g.us", name: "IT help", is_group: true, mins: 8000, count: 0, ticked: false },
+  { jid: "120363000000000101@g.us", name: "Design team", is_group: true, mins: 2950, count: 612, ticked: true },
+  { jid: "15550100101@s.whatsapp.net", name: "Riley Chen", is_group: false, mins: 3020, count: 88, ticked: true },
+  { jid: "120363000000000102@g.us", name: "Quarterly planning", is_group: true, mins: 3300, count: 240, ticked: true },
+  { jid: "120363000000000103@g.us", name: "Office", is_group: true, mins: 4100, count: 0 },
+  { jid: "15550100102@s.whatsapp.net", name: "Morgan Park", is_group: false, mins: 5000, count: 344, ticked: true },
+  { jid: "120363000000000104@g.us", name: "IT help", is_group: true, mins: 8000, count: 0 },
 ];
+
+/** How long after linking the bridge holds messages for unticked chats (internal/wa/hold.go). */
+const HOLD_MS = 60 * 60000;
 
 const M = (who, mine, mins, text, kind = "text") => ({ who, mine, mins, text, kind });
 const MESSAGES = {
@@ -181,6 +189,7 @@ function fresh(opts) {
     sessions: [],
     chats: {},
     messages: {},
+    held: {}, // per fresh link: {counts, messages} of unticked chats, until hold_until
     logs: [],
     keys: opts.keys ? [...opts.keys] : [],
     log: [], // every non-GET request: {method, path, body}
@@ -252,12 +261,34 @@ function addGrant(S, name, clientId) {
   return g;
 }
 
-function chatsFor(id, list = CHATS) {
-  return list.map((c) => ({
-    session_id: id, jid: c.jid, name: c.name, is_group: c.is_group, last_message_at: iso(c.mins), message_count: c.count, ticked: c.ticked ?? true,
-  }));
+/** The chat list: the owner's earlier choices, or for a fresh link every chat unticked. */
+function chatsFor(id, list = CHATS, freshLink = false) {
+  return list.map((c) => {
+    const ticked = !freshLink && !!c.ticked;
+    return {
+      session_id: id, jid: c.jid, name: c.name, is_group: c.is_group, last_message_at: iso(c.mins), message_count: ticked ? c.count : 0, ticked,
+    };
+  });
 }
-const storedCount = (list = CHATS) => list.reduce((n, c) => n + (c.ticked === false ? 0 : c.count), 0);
+const storedCount = (list = CHATS) => list.reduce((n, c) => n + (c.ticked ? c.count : 0), 0);
+
+/** Like the bridge: stored messages and the newest of them come from ticked chats only. */
+function recount(S, s) {
+  const ticked = (S.chats[s.id] ?? []).filter((c) => c.ticked);
+  s.message_count = ticked.reduce((n, c) => n + c.message_count, 0);
+  const last = ticked.map((c) => c.last_message_at).filter(Boolean).sort().pop();
+  if (last) s.last_message_at = last;
+  else delete s.last_message_at;
+}
+
+/** The hold window ends: what it held is dropped. */
+function holdOpen(S, s) {
+  if (s.hold_until && Date.parse(s.hold_until) <= Date.now()) {
+    delete s.hold_until;
+    delete S.held[s.id];
+  }
+  return !!s.hold_until;
+}
 
 /** A stable made-up number per sender name. */
 const senderJid = (name) => `1555020${String(1000 + ([...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 9000, 7))).padStart(4, "0")}@s.whatsapp.net`;
@@ -326,11 +357,14 @@ function link(S, id) {
   Object.assign(s, {
     state: "connecting", jid: OWN_JID, ...OWN, connected_at: new Date().toISOString(),
   });
-  S.chats[id] = chatsFor(id);
-  S.messages[id] = messagesFor(id);
+  // Every chat starts unticked. The history WhatsApp sends now is held in
+  // memory until a chat is ticked or the hour after linking ends.
+  S.chats[id] = chatsFor(id, CHATS, true);
+  S.messages[id] = {};
+  S.held[id] = { counts: Object.fromEntries(CHATS.map((c) => [c.jid, c.count])), messages: messagesFor(id) };
+  s.hold_until = new Date(Date.now() + HOLD_MS).toISOString();
   s.chat_count = CHATS.length;
-  s.message_count = storedCount();
-  s.last_message_at = iso(4);
+  recount(S, s);
   const seq = S.logs.length;
   S.logs.unshift(
     { seq: seq + 3, time: new Date().toISOString(), session_id: id, type: "chats.sync", detail: `history sync: ${CHATS.length} chats` },
@@ -547,6 +581,7 @@ async function handle(S, req, res) {
       S.failSessions--;
       return send(res, 500, { error: "database is locked" });
     }
+    S.sessions.forEach((s) => holdOpen(S, s));
     return send(res, 200, S.sessions);
   }
   if (p === "/api/sessions/pair" && m === "POST") {
@@ -571,6 +606,7 @@ async function handle(S, req, res) {
     const sub = r[2] ?? "";
     const s = S.sessions.find((x) => x.id === id);
     if (!s) return send(res, 404, { error: "session not found" });
+    holdOpen(S, s);
     if (sub === "" && m === "GET") return send(res, 200, s);
     if (sub === "" && m === "DELETE") {
       if (s.state === "connected" || s.state === "connecting") return send(res, 409, { error: "still linked; log out first" });
@@ -590,6 +626,8 @@ async function handle(S, req, res) {
     if (sub === "/logout" && m === "POST") {
       s.state = "logged_out";
       S.chats[id] = [];
+      delete S.held[id];
+      delete s.hold_until;
       s.chat_count = 0;
       s.message_count = 0;
       emit(S, { type: "state", session_id: id, state: "logged_out" });
@@ -612,10 +650,17 @@ async function handle(S, req, res) {
       const chat = (S.chats[id] ?? []).find((x) => x.jid === jid);
       if (!chat) return send(res, 404, { error: "chat not found" });
       chat.ticked = !!body.ticked;
-      if (!chat.ticked) {
+      const held = S.held[id];
+      if (chat.ticked && held && jid in held.counts) {
+        // Ticked inside the window: the held history is stored.
+        chat.message_count = held.counts[jid];
+        S.messages[id][jid] = held.messages[jid] ?? [];
+        delete held.counts[jid];
+      } else if (!chat.ticked) {
         chat.message_count = 0;
         if (S.messages[id]) S.messages[id][jid] = [];
       }
+      recount(S, s);
       return send(res, 200, chat);
     }
     const msg = sub.match(/^\/chats\/([^/]+)\/messages$/);
@@ -623,7 +668,7 @@ async function handle(S, req, res) {
       const jid = decodeURIComponent(msg[1]);
       const chat = (S.chats[id] ?? []).find((x) => x.jid === jid);
       if (!chat) return send(res, 404, { error: "chat not found" });
-      if (chat.ticked === false) return send(res, 200, []);
+      if (!chat.ticked) return send(res, 200, []);
       return send(res, 200, S.messages[id]?.[jid] ?? []);
     }
     const ctx = sub.match(/^\/chats\/([^/]+)\/messages\/([^/]+)\/context$/);
@@ -644,7 +689,7 @@ async function handle(S, req, res) {
     const hits = [];
     for (const s of S.sessions)
       for (const c of S.chats[s.id] ?? []) {
-        if (c.ticked === false) continue;
+        if (!c.ticked) continue;
         for (const msg of S.messages[s.id]?.[c.jid] ?? []) if (q && msg.text.toLowerCase().includes(q)) hits.push({ message: msg, chat_name: c.name, session_id: s.id });
       }
     return send(res, 200, hits.reverse().slice(0, Number(u.searchParams.get("limit") ?? 50)));

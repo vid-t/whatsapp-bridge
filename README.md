@@ -17,13 +17,15 @@ the chats you choose in an encrypted database on your own VPS, where you can ser
 ```mermaid
 flowchart LR
     phone["Your phone<br/>(WhatsApp)"] -- "linked device,<br/>like WhatsApp Web" --> bridge["whatsapp-bridge<br/>on your server"]
-    bridge --> db[("Encrypted database<br/>ticked chats only")]
+    bridge --> db[("Encrypted database<br/>messages of ticked chats only")]
     ai["Your AI assistant<br/>Claude · ChatGPT · Codex"] -- "MCP, after you sign in<br/>read-only tools" --> bridge
 ```
 
 1. **Link.** On your phone, open **Settings › Linked devices › Link a device** and scan the
    QR code. The bridge now receives your messages like any other linked device in WhatsApp.
-2. **Tick.** Choose only which chats it keeps.
+2. **Tick.** Choose only which chats it keeps. Every chat starts unticked, and the bridge
+   stores none of its messages until you tick it. Tick within an hour of linking to also
+   keep the history WhatsApp sends at linking.
 3. **Ask.** Connect your assistant to `https://<your server>/mcp` and sign in. It searches
    and reads your ticked chats when it needs to, and cites every message it uses.
 
@@ -39,7 +41,7 @@ CGO_ENABLED=0 go build -o bin/whatsapp-bridge ./cmd/whatsapp-bridge
 ```
 
 Open <http://127.0.0.1:8080>, enter the access code from `whatsapp-bridge.env`, link
-WhatsApp and tick your chats.
+WhatsApp and tick your chats. Tick them within the hour to keep their recent history.
 
 > [!IMPORTANT]
 > `whatsapp-bridge.env` holds the database key. Without it the database cannot be read, so
@@ -90,7 +92,10 @@ Every message comes with a `wa://` citation, so you can check the source of an a
 
 - **Read-only.** The code has no way to send messages, an "online" status or read receipts.
   The tools cannot change or delete anything.
-- **Only ticked chats.** Unticked chats are never stored, so no assistant can see them.
+- **Only ticked chats.** Chats start unticked. The bridge never stores the messages of an
+  unticked chat, only its name and last activity for the chat list, so no assistant can see
+  it. For an hour after you link a phone, it holds those messages in memory only, so a chat
+  you tick in that hour keeps its history. Then they are dropped.
 - **Encrypted at rest.** The database file is encrypted with Adiantum when `BRIDGE_DB_KEY`
   is set (`keygen` creates it). A running bridge decrypts messages in memory, so run it on
   a machine you control.

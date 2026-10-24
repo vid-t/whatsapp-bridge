@@ -290,6 +290,10 @@ export function LinkFlow({ onLinked }: { onLinked: (sessionId: string) => void }
           <TabsContent value="qr">{v.mode === "qr" && steps("qr")}</TabsContent>
           <TabsContent value="code">{v.mode === "code" && steps("code")}</TabsContent>
         </Tabs>
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          Next, you tick the chats to share. Nothing is stored until you do. Tick them within an hour to also keep the history WhatsApp
+          sends at linking.
+        </p>
         {warn && (
           <Alert variant="warning" role="status" className="page-enter">
             <p>{warn}</p>
@@ -339,8 +343,13 @@ export function LinkHelp() {
       <CollapsibleContent>
         <div className="grid max-w-3xl gap-3 px-5 pb-5 text-sm leading-relaxed text-muted-foreground sm:px-6">
           <p>
-            The bridge appears on the phone as a linked device called “{PRODUCT}”, next to WhatsApp Web. It only reads what arrives in the
-            chats you tick.
+            The bridge appears on the phone as a linked device called “{PRODUCT}”, next to WhatsApp Web. Every chat starts unticked, and
+            the bridge stores nothing from a chat until you tick it.
+          </p>
+          <p>
+            <strong className="font-medium text-foreground">History.</strong> Right after linking, WhatsApp sends the recent history of
+            your chats, once. The bridge holds it in memory, never on disk, for an hour. Tick chats in that hour and their history is
+            stored with them. The rest is dropped after the hour, or sooner if the bridge restarts.
           </p>
           <p>Unlink it any time under Linked devices. WhatsApp also unlinks it if the phone stays offline for 14 days.</p>
           <p>

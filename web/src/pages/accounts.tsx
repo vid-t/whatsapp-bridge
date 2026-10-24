@@ -49,7 +49,10 @@ const LinkButton = ({ className }: { className?: string }) => (
 function GetStarted() {
   const steps = [
     { title: "Link an account.", text: "Scan a QR code with the phone, as you would for WhatsApp Web.", action: <LinkButton className="mt-3" /> },
-    { title: "Tick the chats to share.", text: "Only ticked chats are stored and reach your AI assistant." },
+    {
+      title: "Tick the chats to share.",
+      text: "Chats start unticked, and nothing is stored until you tick one. Tick within an hour of linking to keep their recent history.",
+    },
     { title: "Connect your AI.", text: "Add the bridge to Claude, ChatGPT or Codex." },
   ];
   return (

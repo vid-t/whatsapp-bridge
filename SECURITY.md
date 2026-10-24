@@ -39,6 +39,8 @@ each step.
 
 ## Security model
 
-The README's Security section lists the defaults: encryption at rest, the access code,
-loopback-only listening and read-only access to ticked chats.
+The README's Privacy and safety section lists the defaults: chats start unticked,
+encryption at rest, the access code, loopback-only listening and read-only access to ticked
+chats. For an hour after a phone is linked, messages for unticked chats are held in the
+bridge's memory, never in the database or a log, so that ticking a chat keeps its history.
 [`docs/MCP-SETUP.md`](docs/MCP-SETUP.md) describes how assistants sign in.
