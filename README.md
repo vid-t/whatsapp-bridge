@@ -7,6 +7,10 @@
 [![CI](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-only](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
 
+<a href=".github/assets/whatsapp-bridge.mp4"><img src=".github/assets/how-it-works.gif" width="880" alt="whatsapp-bridge in three steps: link WhatsApp by scanning a QR code, tick the chats to keep, then ask your AI assistant, which searches them and cites each message"></a>
+
+[Watch the 40-second video](.github/assets/whatsapp-bridge.mp4)
+
 </div>
 
 whatsapp-bridge links to your WhatsApp as an extra device, the way WhatsApp Web does. It keeps
