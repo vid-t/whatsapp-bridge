@@ -1,0 +1,63 @@
+name: Something broke
+description: The install failed, pairing failed, or the bridge did something wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for trying whatsapp-bridge. Before you paste anything, remove message text,
+        phone numbers, access codes, database keys and API keys.
+
+        Report security problems privately instead:
+        https://github.com/vid-t/whatsapp-bridge/security/advisories/new
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - "A. cloud-init"
+        - "B. Docker Compose"
+        - "C. Install script"
+        - Release binary on my own machine
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or image tag you installed. `/api/me` also shows it.
+      placeholder: v0.1.1
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      placeholder: Ubuntu 24.04 on a VPS, macOS 15, ...
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: The steps, in order.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The lines around the error. Redact them first.
+      render: text
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed message text, phone numbers, access codes and keys.
+          required: true
