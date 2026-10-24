@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and feedback
+    url: https://github.com/vid-t/whatsapp-bridge/discussions
+    about: Ask a question, or tell us how the install went.
+  - name: Report a security problem
+    url: https://github.com/vid-t/whatsapp-bridge/security/advisories/new
+    about: Report it privately. Do not open a public issue.

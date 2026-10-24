@@ -1,0 +1,20 @@
+name: Idea
+description: Suggest a change or a missing feature.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        whatsapp-bridge is read-only: it never sends anything to WhatsApp. If your idea needs
+        sending, presence or read receipts, start a discussion first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
