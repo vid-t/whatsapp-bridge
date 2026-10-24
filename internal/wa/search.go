@@ -27,8 +27,10 @@ func AppendAudit(ctx context.Context, db *sql.DB, typ, detail string) error {
 	return err
 }
 
-// SetChatTicked turns storage for a chat on or off. Turning it off deletes
-// the chat's stored messages; turning it on resumes storage from now.
+// SetChatTicked turns storage for a chat on or off. Turning it on stores new
+// messages from now on, plus the messages held in memory for the chat while
+// its account's window after linking is open. Turning it off deletes the
+// chat's stored messages.
 func (m *Manager) SetChatTicked(ctx context.Context, sessionID, chatJID string, ticked bool) (Chat, error) {
 	if _, err := m.get(sessionID); err != nil {
 		return Chat{}, err
@@ -40,16 +42,28 @@ func (m *Manager) SetChatTicked(ctx context.Context, sessionID, chatJID string, 
 	if len(chats) == 0 {
 		return Chat{}, ErrNoChat
 	}
-	if err := m.setTicked(ctx, sessionID, chatJID, ticked); err != nil {
-		return Chat{}, err
-	}
-	if !ticked {
-		if err := m.deleteChatMessages(ctx, sessionID, chatJID); err != nil {
+	kept := -1
+	if ticked {
+		held := m.hold.take(sessionID, chatJID)
+		n, err := m.tickChat(ctx, sessionID, chatJID, held)
+		if err != nil {
+			m.hold.restore(sessionID, chatJID, held)
 			return Chat{}, err
 		}
-		_ = m.recountChat(ctx, sessionID, chatJID)
+		if len(held) > 0 {
+			kept = n
+		}
+	} else {
+		if err := m.untickChat(ctx, sessionID, chatJID); err != nil {
+			return Chat{}, err
+		}
+		m.hold.untick(sessionID, chatJID)
 	}
+	_ = m.recountChat(ctx, sessionID, chatJID)
 	m.appendLog(ctx, sessionID, "chat.ticked", fmt.Sprintf("%s=%t", chatJID, ticked))
+	if kept >= 0 {
+		m.appendLog(ctx, sessionID, "history.kept", fmt.Sprintf("%d held messages stored", kept))
+	}
 	m.publish(Event{SessionID: sessionID, Type: EventChats, Text: "chat selection changed"})
 	chats, err = m.queryChats(ctx, `WHERE session_id = ? AND jid = ?`, sessionID, chatJID)
 	if err != nil || len(chats) == 0 {

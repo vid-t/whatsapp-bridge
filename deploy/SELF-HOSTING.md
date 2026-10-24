@@ -90,7 +90,9 @@ Port 8080 on the server must be free. Logs: `journalctl -u whatsapp-bridge -f`.
 2. **Pair WhatsApp.** The web UI shows a QR code. On your phone open WhatsApp >
    Settings > Linked devices > Link a device, and scan it. The bridge appears there as
    "whatsapp-bridge" (`BRIDGE_DEVICE_NAME`).
-3. **Tick the chats** the bridge may share. Only ticked chats reach your assistant.
+3. **Tick the chats** the bridge may share. Chats start unticked, and only ticked chats are
+   stored and reach your assistant. Tick them within an hour of pairing: until then the
+   bridge holds the history WhatsApp sent at pairing in memory, and a ticked chat keeps it.
 4. **Connect your AI.** Add `https://<your domain>/mcp` as a connector in Claude,
    ChatGPT, Codex or Claude Code: [docs/MCP-SETUP.md](../docs/MCP-SETUP.md).
 

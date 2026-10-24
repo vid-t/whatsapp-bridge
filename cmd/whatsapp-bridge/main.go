@@ -753,6 +753,11 @@ func runPairCode(ctx context.Context, mgr *wa.Manager, phone, label string, logg
 	watch(ctx, events, mgr, id)
 }
 
+// pairedNote explains, after linking from the terminal, why no history is kept.
+const pairedNote = `        Chats start unticked: nothing is stored until you tick chats in the web UI.
+        The history WhatsApp sends now is held only in this process's memory and is
+        dropped when it exits. To keep it, link from the web UI and tick chats within an hour.`
+
 // watch prints lifecycle events for a session until ctx is cancelled.
 func watch(ctx context.Context, events <-chan wa.Event, mgr *wa.Manager, id string) {
 	for {
@@ -777,6 +782,9 @@ func watch(ctx context.Context, events <-chan wa.Event, mgr *wa.Manager, id stri
 			case wa.EventPair:
 				if ev.Pair != nil {
 					fmt.Printf("[%s] pair=%s %s %s\n", ev.Time.Format(time.TimeOnly), ev.Pair.Type, ev.Pair.Code, ev.Pair.Error)
+					if ev.Pair.Type == wa.PairSuccess {
+						fmt.Println(pairedNote)
+					}
 				}
 			case wa.EventMessage:
 				if ev.Message != nil {

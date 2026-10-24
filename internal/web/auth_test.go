@@ -13,6 +13,7 @@ import (
 
 	"github.com/vid-t/whatsapp-bridge/internal/auth"
 	"github.com/vid-t/whatsapp-bridge/internal/store"
+	"github.com/vid-t/whatsapp-bridge/internal/wa"
 )
 
 func newAuthStore(t *testing.T, code string) *auth.Store {
@@ -199,6 +200,36 @@ func TestKeyReadsAPI(t *testing.T) {
 	})
 	if w.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatal("cross-origin reads must not receive CORS headers")
+	}
+}
+
+// A key sees only ticked chats; a signed-in person sees every chat, to
+// choose what to share.
+func TestKeySeesTickedChatsOnly(t *testing.T) {
+	st := newAuthStore(t, "code")
+	h, f := gatedHandler(t, Options{Auth: st})
+	f.put("s1", "connected")
+	f.chats["s1"] = []wa.Chat{
+		{SessionID: "s1", JID: "g1@g.us", Name: "Shared group", Ticked: true},
+		{SessionID: "s1", JID: "15550100001@s.whatsapp.net", Name: "Private person"},
+	}
+	_, secret, _ := st.CreateKey(context.Background(), "script", auth.KindMCP)
+	bearer := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+secret) }
+	w := call(h, "GET", "/api/sessions/s1/chats", "", bearer)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Shared group") || strings.Contains(w.Body.String(), "Private person") ||
+		strings.Contains(w.Body.String(), "15550100001") {
+		t.Fatalf("key chat list: %d %s", w.Code, w.Body)
+	}
+
+	login := call(h, "POST", "/auth/login", `{"code":"code"}`, nil)
+	cookies := login.Result().Cookies()
+	if login.Code != http.StatusNoContent || len(cookies) == 0 {
+		t.Fatalf("login: %d", login.Code)
+	}
+	w = call(h, "GET", "/api/sessions/s1/chats", "", func(r *http.Request) { r.AddCookie(cookies[0]) })
+	var chats []wa.Chat
+	if err := json.Unmarshal(w.Body.Bytes(), &chats); err != nil || len(chats) != 2 {
+		t.Fatalf("session chat list: %d %s", w.Code, w.Body)
 	}
 }
 

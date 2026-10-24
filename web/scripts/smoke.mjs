@@ -2,7 +2,8 @@
 // (scripts/mock-bridge.mjs), never a real account. It starts the mock and
 // `vite preview` (which sends the bridge's CSP) on free ports, then walks every
 // page at 1280 and 390 px wide, light and dark: sign in, accounts, link (the QR
-// shows, then the mock links it), the account page (read a chat, untick and tick it),
+// shows, then the mock links it), the account page (chats start unticked; tick one,
+// read it, untick and tick it again),
 // Connect AI, keys (create and revoke), members (approve), not found,
 // sign out. It fails on console errors, CSP violations and axe WCAG 2.1 A/AA
 // violations. Screenshots go to $SHOTS.
@@ -184,7 +185,18 @@ async function walk(scheme, width) {
     await h1("Alex Morgan");
     await page.getByRole("table").first().waitFor();
     await page.getByRole("checkbox", { name: "Family" }).waitFor();
+    // A fresh link: every chat starts unticked, and the held history waits for a tick.
+    await page.getByText(/^Tick chats by .+ to keep their history$/).waitFor();
+    const family = page.getByRole("checkbox", { name: "Family" });
+    note(!(await family.isChecked()), `${v} chats start unticked`);
+    note((await page.getByRole("checkbox", { checked: true }).count()) === 0, `${v} no chat ticked after linking`);
     await check("account");
+
+    // Tick a chat inside the window: its held history is stored. The box is
+    // controlled: it changes once the bridge answers, so click rather than check().
+    await family.click();
+    await page.getByRole("row", { name: /Family/ }).getByText("Shared", { exact: true }).waitFor();
+    note(await family.isChecked(), `${v} tick Family`);
 
     // Read a chat's stored messages, then close the viewer.
     await page.getByRole("button", { name: "View messages in Family" }).click();
@@ -194,9 +206,7 @@ async function walk(scheme, width) {
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "detached" });
 
-    // Untick a chat (asks first), then tick it again. The box is controlled:
-    // it changes once the bridge answers, so click rather than uncheck().
-    const family = page.getByRole("checkbox", { name: "Family" });
+    // Untick a chat (asks first), then tick it again.
     await family.click();
     await page.getByRole("alertdialog").waitFor();
     await shoot("untick-dialog");

@@ -1,4 +1,4 @@
-import { EyeIcon, MessageSquareTextIcon, SearchIcon, SearchXIcon } from "lucide-react";
+import { EyeIcon, HourglassIcon, MessageSquareTextIcon, SearchIcon, SearchXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
 import { useConfirm } from "@/components/confirm";
@@ -6,6 +6,7 @@ import { Empty, LoadingRows } from "@/components/feedback";
 import { SessionActions, SessionStatus } from "@/components/session-actions";
 import { Page, PageHeader, Section } from "@/components/shell";
 import { Status } from "@/components/status";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -100,6 +101,24 @@ function DetailsSkeleton() {
 }
 
 /* ------------------------------------------------------------------ chats */
+
+/** For an hour after linking, messages for unticked chats wait in memory for a tick. */
+function HoldNotice({ until }: { until: string }) {
+  const at = fmtTime(until);
+  return (
+    <Alert role="status" className="page-enter">
+      <HourglassIcon aria-hidden="true" />
+      <AlertTitle>Tick chats by {at} to keep their history</AlertTitle>
+      <AlertDescription>
+        <p>
+          WhatsApp sent the recent history of this account when you linked it. Until {at}, the bridge holds it, and new messages in
+          unticked chats, in memory only. Tick a chat before then and its history is stored with it. After that, or if the bridge
+          restarts, the rest is dropped.
+        </p>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 function ChatRow({
   c,
@@ -540,6 +559,7 @@ export function AccountPage({ id }: { id: string }) {
 
   const all = chats ?? [];
   const sharedCount = all.filter((c) => c.ticked).length;
+  const holding = (Date.parse(session?.hold_until ?? "") || 0) > Date.now();
   const byFilter = all.filter((c) => filter === "all" || (filter === "shared") === c.ticked);
   const shown = byFilter.filter((c) => !query || fold(chatName(c)).includes(fold(query)));
   const visible = shown.slice(0, limit);
@@ -561,7 +581,8 @@ export function AccountPage({ id }: { id: string }) {
         lead={
           <>
             <strong className="font-medium text-foreground">Only ticked chats are shared.</strong> The bridge stores their messages and AI
-            assistants can read them. Unticked chats are not stored and no assistant can see them.
+            assistants can read them. Chats start unticked. For those, the bridge keeps only the name and last activity, so you can find
+            them here, and no assistant can see them.
           </>
         }
         aside={
@@ -572,11 +593,12 @@ export function AccountPage({ id }: { id: string }) {
           ) : undefined
         }
       >
+        {holding && session?.hold_until && <HoldNotice until={session.hold_until} />}
         {chats === null ? (
           <LoadingRows label="Loading chats…" rows={5} />
         ) : chats.length === 0 ? (
           <Empty icon={<MessageSquareTextIcon />} title="No chats yet">
-            WhatsApp sends the chat list a minute or two after linking.
+            WhatsApp sends the chat list a minute or two after linking. Then tick the chats to share.
           </Empty>
         ) : (
           <div className="grid gap-3">

@@ -21,9 +21,18 @@ export interface SessionInfo {
   last_error?: string;
   created_at: string;
   connected_at?: string;
+  /** The newest message in a ticked chat. */
   last_message_at?: string;
+  /** Messages stored, in ticked chats only. */
   message_count: number;
+  /** Chats known, ticked or not. */
   chat_count: number;
+  /**
+   * Set for an hour after linking. Until then, messages for unticked chats
+   * (the history WhatsApp sends at linking, and new ones) are held in memory,
+   * and ticking a chat stores its held messages. Afterwards they are dropped.
+   */
+  hold_until?: string;
 }
 
 export interface Chat {
@@ -33,7 +42,7 @@ export interface Chat {
   is_group: boolean;
   last_message_at?: string;
   message_count: number;
-  /** Ticked chats are stored and reach AI assistants. */
+  /** Ticked chats are stored and reach AI assistants. Chats start unticked. */
   ticked: boolean;
 }
 

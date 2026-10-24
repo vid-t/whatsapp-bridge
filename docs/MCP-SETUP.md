@@ -170,6 +170,7 @@ tools are read-only either way.
 Sign-in (sections 2 to 5) is the normal way to connect an assistant. Keys remain for
 scripts and for clients that can only send a fixed header. A key can call `/mcp` and read
 the bridge's `/api/*` endpoints (GET only); it can never manage keys or change anything.
+Like the MCP tools, a key's chat list shows ticked chats only.
 
 Each person and each assistant gets its own key, so it can be revoked on its own and the
 event log shows who read what.
@@ -267,7 +268,7 @@ names the sender and time and gives the citation for every fact it takes from a 
 | **401** with a key / Claude Code shows `Server rejected the configured Authorization header (HTTP 401)` | The key is missing, mistyped or revoked. The response body says which. In claude.ai, check that the header value starts with `Bearer ` plus a space. In Codex, check that `WHATSAPP_BRIDGE_MCP_KEY` is set in the shell that started Codex. Claude Code does not try OAuth when an Authorization header is configured, so a 401 then always means the key itself. |
 | Tool error **"Rate limit reached"** | More than 60 tool calls in a minute for this key or grant, or 600 for the whole bridge. The assistant is told how many seconds to wait. This usually means an agent loop: stop it and ask a narrower question. |
 | **HTTP 429** with `Retry-After` | More than 300 HTTP requests a minute for one key or grant (3,000 for the bridge), or too many sign-in attempts from one address. Wait for the number of seconds in `Retry-After`. |
-| **Empty results** | (1) The chat is not ticked. Only ticked chats exist for assistants: tick it on the bridge's web page. Storage starts from that moment; older history is not fetched again. (2) The device is logged out: `get_status` says so. (3) Search needs every word to appear: use fewer, distinctive words (a name, a number, a place). (4) Dates are UTC, and a date range applies to the newest 200 matches. |
+| **Empty results** | (1) The chat is not ticked. Chats start unticked, and only ticked chats exist for assistants: tick it on the bridge's web page. Storage starts from that moment. Older history is kept only if the chat was ticked within an hour of linking the phone; the bridge never asks WhatsApp for it again. (2) The device is logged out: `get_status` says so. (3) Search needs every word to appear: use fewer, distinctive words (a name, a number, a place). (4) Dates are UTC, and a date range applies to the newest 200 matches. |
 | **Stale answers** | Every result starts with `as_of` and a `freshness:` line, such as `device "Desk" is disconnected since … reconnecting automatically` or `… is logged_out …, so nothing new arrives until it is relinked`. Relink a logged-out device from the bridge's web page. A phone that stays offline for 14 days logs out its linked devices automatically. |
 | **claude.ai or ChatGPT cannot connect, but Claude Code can** | claude.ai and ChatGPT call from their own servers: the host must be public with a valid TLS certificate. A tailnet or `localhost` URL works only with Claude Code and Codex. |
 | **"unknown chat_jid"** / **"no ticked chat is named …"** | Ask the assistant to call `list_chats` first. It returns the exact names and ids. |
@@ -282,6 +283,7 @@ messages requested, capped at 1 MB per call. They go to the model provider (Anth
 for Claude, OpenAI for Codex) under your own plan and that provider's data terms. With
 claude.ai the request comes from Anthropic's servers. With Claude Code and Codex it comes
 from your machine, and the results then travel to the provider's API. No MCP setup avoids
-this, short of a local model. Unticked chats are not stored, so no assistant can reach
-them. The bridge logs every call (key or grant id, tool, a hash of the arguments, chats
-touched, number of rows) but never the message text.
+this, short of a local model. Chats start unticked, and the bridge stores no messages from
+unticked chats, so no assistant can reach them. The bridge logs every call (key or grant
+id, tool, a hash of the arguments, chats touched, number of rows) but never the message
+text.

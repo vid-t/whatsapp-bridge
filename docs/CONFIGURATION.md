@@ -19,6 +19,11 @@ whatsapp-bridge members list             # members and pending requests (also in
 directory: they do not connect the other stored devices. At most 3 pairings may be in
 progress at once; extra requests get HTTP 429.
 
+Chats start unticked. For an hour after linking, the bridge holds the history WhatsApp
+sends in the memory of the process that linked the phone, and ticking a chat in that
+process's web UI keeps it. `pair` and `pair-code` have no web UI, so they keep none of
+that history. Link from the web UI if you want it.
+
 ## Core settings
 
 | Variable | Flag | Default | Meaning |

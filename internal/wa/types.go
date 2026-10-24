@@ -36,9 +36,13 @@ type SessionInfo struct {
 	LastError     string     `json:"last_error,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ConnectedAt   *time.Time `json:"connected_at,omitempty"`
-	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
-	MessageCount  int64      `json:"message_count"`
-	ChatCount     int64      `json:"chat_count"`
+	LastMessageAt *time.Time `json:"last_message_at,omitempty"` // newest message in a ticked chat
+	MessageCount  int64      `json:"message_count"`             // messages stored (ticked chats only)
+	ChatCount     int64      `json:"chat_count"`                // chats known, ticked or not
+	// HoldUntil is set for a while after linking: until then, messages for
+	// unticked chats are held in memory, and ticking a chat stores its held
+	// messages. Afterwards they are dropped.
+	HoldUntil *time.Time `json:"hold_until,omitempty"`
 }
 
 // PairEventType enumerates the pairing sub-events.
@@ -96,8 +100,9 @@ type Chat struct {
 	IsGroup       bool       `json:"is_group"`
 	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
 	MessageCount  int64      `json:"message_count"`
-	// Ticked chats are stored and visible to tools; unticked chats are not
-	// stored and their messages are deleted.
+	// Ticked chats are stored and visible to tools. Chats start unticked:
+	// an unticked chat keeps only this row (id, name, kind, last activity),
+	// never its messages, and unticking a chat deletes them.
 	Ticked bool `json:"ticked"`
 }
 

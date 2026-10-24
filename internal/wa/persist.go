@@ -3,6 +3,7 @@ package wa
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS bridge_chats (
   is_group        INTEGER NOT NULL DEFAULT 0,
   last_message_at TEXT,
   message_count   INTEGER NOT NULL DEFAULT 0,
-  ticked          INTEGER NOT NULL DEFAULT 1,
+  ticked          INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id, jid)
 );
 CREATE TABLE IF NOT EXISTS bridge_messages (
@@ -81,12 +82,37 @@ func (m *Manager) ensureSchema(ctx context.Context) error {
 	}
 	// Additive migrations for databases created before a column existed.
 	if !m.hasColumn(ctx, "bridge_chats", "ticked") {
-		if _, err := m.db.ExecContext(ctx, `ALTER TABLE bridge_chats ADD COLUMN ticked INTEGER NOT NULL DEFAULT 1`); err != nil {
+		if err := m.migrateTicked(ctx); err != nil {
 			return fmt.Errorf("wa: migrate ticked: %w", err)
 		}
 	}
 	m.ensureFTS(ctx)
 	return nil
+}
+
+// migrateTicked adds the ticked column to a database that predates it. Such
+// a bridge stored every chat, so every existing chat is ticked and its
+// messages stay visible; chats added from now on start unticked. It runs in
+// one transaction, so a crash cannot leave stored chats unticked.
+//
+// Databases created after the column but before opt-in chats keep a column
+// DEFAULT of 1, which SQLite cannot change. That is why every INSERT into
+// bridge_chats sets ticked explicitly.
+func (m *Manager) migrateTicked(ctx context.Context) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`ALTER TABLE bridge_chats ADD COLUMN ticked INTEGER NOT NULL DEFAULT 0`,
+		`UPDATE bridge_chats SET ticked = 1`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (m *Manager) hasColumn(ctx context.Context, table, column string) bool {
@@ -192,16 +218,18 @@ func (m *Manager) deleteSessionData(ctx context.Context, id string) error {
 	return nil
 }
 
-// upsertChat creates or updates a chat row. An empty name never overwrites a
-// known name; last_message_at only moves forward.
+// upsertChat creates or updates a chat row. A new chat starts unticked; an
+// existing chat keeps its tick. An empty name never overwrites a known name;
+// last_message_at only moves forward. The row holds only what the chat list
+// needs (id, name, kind, last activity), never message content.
 func (m *Manager) upsertChat(ctx context.Context, sessionID, jid, name string, isGroup bool, lastAt *time.Time) error {
 	var last any
 	if lastAt != nil {
 		last = fmtTime(*lastAt)
 	}
 	_, err := m.db.ExecContext(ctx, `
-INSERT INTO bridge_chats (session_id, jid, name, is_group, last_message_at)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO bridge_chats (session_id, jid, name, is_group, last_message_at, ticked)
+VALUES (?, ?, ?, ?, ?, 0)
 ON CONFLICT(session_id, jid) DO UPDATE SET
   name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE bridge_chats.name END,
   is_group = excluded.is_group,
@@ -224,16 +252,50 @@ WHERE session_id = ?1 AND jid = ?2`, sessionID, jid)
 	return err
 }
 
+// insertMessage stores a message if its chat is ticked at that moment, and
+// reports whether a row was added. The tick check is part of the INSERT, so
+// a message is never written for an unticked or unknown chat, even one that
+// is unticked while the message is on its way in.
 func insertMessage(ctx context.Context, ex execer, msg Message) (bool, error) {
 	res, err := ex.ExecContext(ctx, `
 INSERT OR IGNORE INTO bridge_messages (session_id, chat_jid, id, sender_jid, sender_name, ts, from_me, kind, text)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+WHERE EXISTS (SELECT 1 FROM bridge_chats WHERE session_id = ?1 AND jid = ?2 AND ticked = 1)`,
 		msg.SessionID, msg.ChatJID, msg.ID, msg.SenderJID, msg.SenderName, fmtTime(msg.Timestamp), boolInt(msg.FromMe), msg.Kind, msg.Text)
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+// writeMessages stores messages in one transaction and returns how many
+// were new. Like insertMessage, it writes nothing for a chat that is not
+// ticked. A message that fails is skipped; the first error is returned.
+func (m *Manager) writeMessages(ctx context.Context, msgs []Message) (int, error) {
+	if len(msgs) == 0 {
+		return 0, nil
+	}
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	n := 0
+	var first error
+	for _, msg := range msgs {
+		ok, err := insertMessage(ctx, tx, msg)
+		if err != nil && first == nil {
+			first = err
+		}
+		if ok {
+			n++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return n, first
 }
 
 func (m *Manager) chats(ctx context.Context, sessionID string) ([]Chat, error) {
@@ -265,25 +327,64 @@ ORDER BY last_message_at DESC NULLS LAST, name`, args...)
 	return out, rows.Err()
 }
 
-// chatTicked reports whether messages for a chat should be stored. Unknown
-// chats are stored (they get a row with the default on first upsert).
-func (m *Manager) chatTicked(ctx context.Context, sessionID, jid string) bool {
-	var ticked int
-	err := m.db.QueryRowContext(ctx, `SELECT ticked FROM bridge_chats WHERE session_id = ? AND jid = ?`, sessionID, jid).Scan(&ticked)
-	if err != nil {
-		return true
+// chatTicked reports whether a chat's messages may be stored, and whether
+// the chat has a row. It fails closed: an unknown chat or a database error
+// means "not ticked". Errors are logged.
+func (m *Manager) chatTicked(ctx context.Context, sessionID, jid string) (ticked, known bool) {
+	var t int
+	err := m.db.QueryRowContext(ctx, `SELECT ticked FROM bridge_chats WHERE session_id = ? AND jid = ?`, sessionID, jid).Scan(&t)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, false
+	case err != nil:
+		m.log.Warn("read chat tick; treating the chat as unticked", "session", sessionID, "err", err)
+		return false, false
 	}
-	return ticked != 0
+	return t != 0, true
 }
 
-func (m *Manager) setTicked(ctx context.Context, sessionID, jid string, ticked bool) error {
-	_, err := m.db.ExecContext(ctx, `UPDATE bridge_chats SET ticked = ? WHERE session_id = ? AND jid = ?`, boolInt(ticked), sessionID, jid)
-	return err
+// tickChat ticks a chat and writes the held messages it is given, in one
+// transaction: if anything fails, the chat stays unticked and nothing is
+// written. It returns how many messages were new.
+func (m *Manager) tickChat(ctx context.Context, sessionID, jid string, held []Message) (int, error) {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE bridge_chats SET ticked = 1 WHERE session_id = ? AND jid = ?`, sessionID, jid); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, msg := range held {
+		ok, err := insertMessage(ctx, tx, msg)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			n++
+		}
+	}
+	return n, tx.Commit()
 }
 
-func (m *Manager) deleteChatMessages(ctx context.Context, sessionID, jid string) error {
-	_, err := m.db.ExecContext(ctx, `DELETE FROM bridge_messages WHERE session_id = ? AND chat_jid = ?`, sessionID, jid)
-	return err
+// untickChat unticks a chat and deletes its stored messages, in one
+// transaction.
+func (m *Manager) untickChat(ctx context.Context, sessionID, jid string) error {
+	tx, err := m.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`UPDATE bridge_chats SET ticked = 0 WHERE session_id = ? AND jid = ?`,
+		`DELETE FROM bridge_messages WHERE session_id = ? AND chat_jid = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, sessionID, jid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (m *Manager) recentMessages(ctx context.Context, sessionID, chatJID string, limit int) ([]Message, error) {
@@ -318,11 +419,14 @@ ORDER BY ts DESC LIMIT ?`, sessionID, chatJID, limit)
 }
 
 // counts reads aggregates from bridge_chats, which recountChat keeps current,
-// so it stays cheap as message volume grows.
+// so it stays cheap as message volume grows. lastAt covers ticked chats only:
+// the activity of unticked chats is for sorting the chat list, nothing else.
 func (m *Manager) counts(ctx context.Context, sessionID string) (msgs, chats int64, lastAt *time.Time) {
 	var last sql.NullString
 	var sum sql.NullInt64
-	_ = m.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(message_count), 0), MAX(last_message_at) FROM bridge_chats WHERE session_id = ?`, sessionID).Scan(&chats, &sum, &last)
+	_ = m.db.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(message_count), 0), MAX(CASE WHEN ticked = 1 THEN last_message_at END)
+FROM bridge_chats WHERE session_id = ?`, sessionID).Scan(&chats, &sum, &last)
 	return sum.Int64, chats, parseTimePtr(last)
 }
 
@@ -390,6 +494,8 @@ func (m *Manager) lidChats(ctx context.Context, sessionID string) ([]string, err
 
 // mergeChat moves a chat's messages under another JID and drops the old row.
 // Messages that already exist under the target are discarded as duplicates.
+// The merged chat is ticked if either row was: chats start unticked, so a
+// tick is always someone's choice. An unticked result keeps no messages.
 func (m *Manager) mergeChat(ctx context.Context, sessionID, from, to string) error {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -402,11 +508,16 @@ func (m *Manager) mergeChat(ctx context.Context, sessionID, from, to string) err
 	}{
 		{`UPDATE OR IGNORE bridge_messages SET chat_jid = ? WHERE session_id = ? AND chat_jid = ?`, []any{to, sessionID, from}},
 		{`DELETE FROM bridge_messages WHERE session_id = ? AND chat_jid = ?`, []any{sessionID, from}},
-		{`INSERT INTO bridge_chats (session_id, jid, name, is_group, last_message_at)
-		  SELECT session_id, ?, name, is_group, last_message_at FROM bridge_chats WHERE session_id = ? AND jid = ?
+		{`INSERT INTO bridge_chats (session_id, jid, name, is_group, last_message_at, ticked)
+		  SELECT session_id, ?, name, is_group, last_message_at, ticked FROM bridge_chats WHERE session_id = ? AND jid = ?
 		  ON CONFLICT(session_id, jid) DO UPDATE SET
-		    name = CASE WHEN bridge_chats.name = '' THEN excluded.name ELSE bridge_chats.name END`, []any{to, sessionID, from}},
+		    name = CASE WHEN bridge_chats.name = '' THEN excluded.name ELSE bridge_chats.name END,
+		    last_message_at = CASE WHEN bridge_chats.last_message_at IS NULL OR excluded.last_message_at > bridge_chats.last_message_at
+		      THEN excluded.last_message_at ELSE bridge_chats.last_message_at END,
+		    ticked = max(bridge_chats.ticked, excluded.ticked)`, []any{to, sessionID, from}},
 		{`DELETE FROM bridge_chats WHERE session_id = ? AND jid = ?`, []any{sessionID, from}},
+		{`DELETE FROM bridge_messages WHERE session_id = ?1 AND chat_jid = ?2
+		  AND NOT EXISTS (SELECT 1 FROM bridge_chats WHERE session_id = ?1 AND jid = ?2 AND ticked = 1)`, []any{sessionID, to}},
 	}
 	for _, s := range steps {
 		if _, err := tx.ExecContext(ctx, s.q, s.args...); err != nil {
@@ -416,6 +527,7 @@ func (m *Manager) mergeChat(ctx context.Context, sessionID, from, to string) err
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	m.hold.rekey(sessionID, from, to)
 	return m.recountChat(ctx, sessionID, to)
 }
 

@@ -310,6 +310,7 @@ Next steps
        sudo grep '^BRIDGE_ACCESS_CODE=' $ENV_FILE
   3. Pair WhatsApp: in the web UI, scan the QR code from your phone
      (WhatsApp > Settings > Linked devices > Link a device), then tick the chats to share.
+     Chats start unticked; tick them within an hour to keep their recent history.
   4. Connect Claude or another assistant to https://$DOMAIN/mcp:
        $DOCS
 

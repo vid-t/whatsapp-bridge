@@ -895,7 +895,7 @@ func (s *server) readChat(ctx context.Context, st *callStats, in readChatArgs) (
 	}
 	switch {
 	case len(msgs) == 0 && before.IsZero():
-		p.add("No messages stored for this chat yet. Messages are stored from the moment a chat is ticked (plus whatever history WhatsApp synced at linking).")
+		p.add("No messages stored for this chat yet. Messages are stored from the moment a chat is ticked; older history is kept only if the chat was ticked within an hour of linking the phone.")
 	case len(msgs) == 0:
 		p.add("No stored messages before that time.")
 	case len(msgs) == limit:
