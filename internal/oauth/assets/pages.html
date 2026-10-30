@@ -91,7 +91,8 @@
 <li>Access renews itself while the app uses it and ends after 30 days without use. Revoke it any time on the bridge.</li>
 </ul>
 <form method="post" action="/oauth/authorize" class="actions">
-{{template "hidden" .Req}}<button type="submit" name="action" value="allow" class="button primary">Allow</button>
+{{template "hidden" .Req}}{{if .Send}}<input type="hidden" name="send" value="1">
+{{end}}<button type="submit" name="action" value="allow" class="button primary">Allow</button>
 <button type="submit" name="action" value="deny" class="button">Deny</button>
 </form>
 {{template "foot" .}}{{end}}

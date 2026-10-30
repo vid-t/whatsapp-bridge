@@ -13,8 +13,8 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// fakeTransport stands in for whatsmeow: it records each send and answers
-// with err, or with a new message id.
+// fakeTransport stands in for whatsmeow: it records each send and gives it a
+// new message id, then answers with err or with the sent message.
 type fakeTransport struct {
 	mu      sync.Mutex
 	calls   []string // "<to> <text>"
@@ -34,10 +34,11 @@ func (f *fakeTransport) send(_ context.Context, _ *session, to types.JID, text s
 	if release != nil {
 		<-release
 	}
+	id := fmt.Sprintf("OUT%d", n)
 	if err != nil {
-		return sent{}, err
+		return sent{id: id}, err
 	}
-	return sent{id: fmt.Sprintf("OUT%d", n), at: t0.Add(time.Duration(n) * time.Minute), from: "15550100000@s.whatsapp.net"}, nil
+	return sent{id: id, at: t0.Add(time.Duration(n) * time.Minute), from: "15550100000@s.whatsapp.net"}, nil
 }
 
 func (f *fakeTransport) count() int {
@@ -240,6 +241,110 @@ func TestUntickWaitsForASendInProgress(t *testing.T) {
 	if ft.count() != 1 {
 		t.Fatalf("transport calls: %v", ft.calls)
 	}
+	if n := locksInUse(e.m); n != 0 {
+		t.Fatalf("%d chat locks left after all sends and ticks ended", n)
+	}
+}
+
+// locksInUse counts the chats whose lock someone holds or waits for.
+func locksInUse(m *Manager) int {
+	m.tickLocks.mu.Lock()
+	defer m.tickLocks.mu.Unlock()
+	return len(m.tickLocks.m)
+}
+
+func TestUntickWaitsOnlyForSendsToThatChat(t *testing.T) {
+	e, ft := newSendEnv(t)
+	ctx := context.Background()
+	if _, err := e.m.SetChatTicked(ctx, optinSID, groupB.String(), true); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	ft.started, ft.release = make(chan struct{}, 1), release
+	sendDone := make(chan error, 1)
+	go func() {
+		_, err := sendTo(e, groupA.String(), "slow send")
+		sendDone <- err
+	}()
+	<-ft.started // the send to groupA is with WhatsApp
+
+	untickA := make(chan error, 1)
+	go func() {
+		_, err := e.m.SetChatTicked(ctx, optinSID, groupA.String(), false)
+		untickA <- err
+	}()
+	select {
+	case err := <-untickA:
+		t.Fatalf("the untick of groupA returned (%v) while a send to it was in progress", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// groupA's send and its waiting untick must not hold up another chat.
+	untickB := make(chan error, 1)
+	go func() {
+		_, err := e.m.SetChatTicked(ctx, optinSID, groupB.String(), false)
+		untickB <- err
+	}()
+	select {
+	case err := <-untickB:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("unticking groupB waited for a send to groupA")
+	}
+
+	close(release)
+	if err := <-sendDone; err != nil {
+		t.Fatalf("the send in progress: %v", err)
+	}
+	if err := <-untickA; err != nil {
+		t.Fatal(err)
+	}
+	if e.chat(t, groupA).Ticked || e.chat(t, groupB).Ticked {
+		t.Fatal("both chats should be unticked")
+	}
+	if n := locksInUse(e.m); n != 0 {
+		t.Fatalf("%d chat locks left after all sends and ticks ended", n)
+	}
+}
+
+func TestSendTimeLimitStartsAfterTheLock(t *testing.T) {
+	e, ft := newSendEnv(t)
+	var deadline time.Time
+	e.m.send = func(ctx context.Context, s *session, to types.JID, text string) (sent, error) {
+		deadline, _ = ctx.Deadline()
+		return ft.send(ctx, s, to, text)
+	}
+	unlock := e.m.tickLocks.lock(optinSID, groupA.String()) // an untick in progress
+	done := make(chan error, 1)
+	go func() {
+		_, err := sendTo(e, groupA.String(), "after the wait")
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	released := time.Now()
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if deadline.IsZero() || deadline.Before(released.Add(SendTimeout)) {
+		t.Fatalf("send deadline %v; want SendTimeout from when the lock was free (%v)", deadline, released.Add(SendTimeout))
+	}
+}
+
+func TestSendReportsADatabaseErrorAsSuch(t *testing.T) {
+	e, ft := newSendEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the tick query fails
+	_, err := e.m.SendText(ctx, Outgoing{SessionID: optinSID, ChatJID: groupA.String(), Text: "hello", KeyID: "k1"})
+	if !errors.Is(err, ErrStore) || errors.Is(err, ErrNotTicked) {
+		t.Fatalf("send when the tick cannot be read: %v, want ErrStore", err)
+	}
+	if ft.count() != 0 {
+		t.Fatal("a send went out without a tick check")
+	}
 }
 
 func TestFailedSendsStoreNothing(t *testing.T) {
@@ -256,7 +361,8 @@ func TestFailedSendsStoreNothing(t *testing.T) {
 		t.Fatalf("%d messages stored after failed sends", n)
 	}
 	logs := e.events(t)
-	for _, want := range []string{"message.failed chat=" + groupA.String() + " key=k1", "message.unconfirmed chat=" + groupA.String() + " key=k1"} {
+	// The unconfirmed message carries its id: WhatsApp may still deliver it.
+	for _, want := range []string{"message.failed chat=" + groupA.String() + " key=k1", "message.unconfirmed chat=" + groupA.String() + " id=OUT2 key=k1"} {
 		if !strings.Contains(logs, want) {
 			t.Fatalf("event log lacks %q:\n%s", want, logs)
 		}
@@ -266,19 +372,40 @@ func TestFailedSendsStoreNothing(t *testing.T) {
 	}
 }
 
+// TestSendErrorSorting uses the error values whatsmeow returns (send.go,
+// request.go, errors.go of the version in go.mod).
 func TestSendErrorSorting(t *testing.T) {
-	for err, want := range map[error]error{
-		whatsmeow.ErrNoPermissionInGroup:                               ErrNoPermission,
-		whatsmeow.ErrNotLoggedIn:                                       ErrNotConnected,
-		whatsmeow.ErrMessageTimedOut:                                   ErrSendUnconfirmed,
-		whatsmeow.ErrNotConnected:                                      ErrSendUnconfirmed,
-		&whatsmeow.DisconnectedError{Action: "message send"}:           ErrSendUnconfirmed,
-		context.DeadlineExceeded:                                       ErrSendUnconfirmed,
-		fmt.Errorf("%w 463", whatsmeow.ErrServerReturnedError):         ErrSendFailed,
-		fmt.Errorf("failed to get group members: %w", errors.New("x")): ErrSendFailed,
+	pn := types.NewJID("15550100003", types.DefaultUserServer)
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"admins only", whatsmeow.ErrNoPermissionInGroup, ErrNoPermission},
+		{"logged out", whatsmeow.ErrNotLoggedIn, ErrNotConnected},
+		{"server refused", fmt.Errorf("%w 463", whatsmeow.ErrServerReturnedError), ErrSendFailed},
+		{"group lookup failed", fmt.Errorf("failed to get group members: %w", errors.New("x")), ErrSendFailed},
+
+		// Before the message goes out: whatsmeow's own queries.
+		{"query cut off", whatsmeow.ErrIQDisconnected, ErrSendFailed},
+		{"query cut off twice", fmt.Errorf("failed to get device list: %w", &whatsmeow.DisconnectedError{Action: "info query (retry)"}), ErrSendFailed},
+		{"query timed out", fmt.Errorf("failed to get group members: %w", whatsmeow.ErrIQTimedOut), ErrSendFailed},
+		{"group lookup out of time", fmt.Errorf("failed to get group members: %w", context.DeadlineExceeded), ErrSendFailed},
+		{"LID lookup out of time", fmt.Errorf("failed to get LID for PN %s: %w", pn, context.DeadlineExceeded), ErrSendFailed},
+		{"user info out of time", fmt.Errorf("failed to get user info for %s to fill LID cache: %w", pn, context.Canceled), ErrSendFailed},
+		{"device lookup offline", fmt.Errorf("failed to get device list: %w", whatsmeow.ErrNotConnected), ErrSendFailed},
+
+		// The message may be on the wire.
+		{"no ack in time", whatsmeow.ErrMessageTimedOut, ErrSendUnconfirmed},
+		{"cut off after sending", &whatsmeow.DisconnectedError{Action: "message send"}, ErrSendUnconfirmed},
+		{"cut off on the resend", &whatsmeow.DisconnectedError{Action: "message send (retry)"}, ErrSendUnconfirmed},
+		{"no socket for the resend", whatsmeow.ErrNotConnected, ErrSendUnconfirmed},
+		{"out of time waiting", context.DeadlineExceeded, ErrSendUnconfirmed},
+		{"canceled waiting", context.Canceled, ErrSendUnconfirmed},
+		{"out of time writing", fmt.Errorf("failed to send message node: %w", context.DeadlineExceeded), ErrSendUnconfirmed},
 	} {
-		if got := sendError(err); !errors.Is(got, want) {
-			t.Errorf("sendError(%v) = %v, want %v", err, got, want)
+		if got := sendError(tc.err); !errors.Is(got, tc.want) {
+			t.Errorf("%s: sendError(%v) = %v, want %v", tc.name, tc.err, got, tc.want)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 import { EyeIcon, HourglassIcon, MessageSquareTextIcon, SearchIcon, SearchXIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
 import { useConfirm } from "@/components/confirm";
 import { Empty, LoadingRows } from "@/components/feedback";
@@ -352,8 +352,9 @@ function MessagesSheet({
 
 /* --------------------------------------------------------------- activity */
 
-function eventTone(type: string) {
-  if (type === "message.failed" || type === "message.unconfirmed") return "warn";
+/** The dot's colour. A refused or failed AI assistant action is never "live". */
+function eventTone(type: string, failed: boolean) {
+  if (failed) return "warn";
   if (type === "message.sent") return "live";
   if (type === "state.connected" || type === "pair.success" || type === "chats.sync") return "ok";
   if (type.startsWith("mcp.") || type.startsWith("oauth.")) return "live";
@@ -362,12 +363,14 @@ function eventTone(type: string) {
   return "off";
 }
 
-function Activity({ logs }: { logs: LogRow[] }) {
+function Activity({ logs, chats }: { logs: LogRow[]; chats: Chat[] | null }) {
+  // Log lines name chats by JID; show this account's chats by name.
+  const names = useMemo(() => new Map((chats ?? []).map((c) => [c.jid, chatName(c)])), [chats]);
   return (
     <ol className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
       {logs.map((l, i) => {
-        const e = describeEvent(l.type, l.detail);
-        const tone = eventTone(l.type);
+        const e = describeEvent(l.type, l.detail, (jid) => names.get(jid));
+        const tone = eventTone(l.type, e.failed);
         return (
           <li
             key={l.key}
@@ -587,7 +590,7 @@ export function AccountPage({ id }: { id: string }) {
             <strong className="font-medium text-foreground">Only ticked chats are shared.</strong> The bridge stores their messages and AI
             assistants can read them.{" "}
             {sendEnabled && (
-              <strong className="font-medium text-foreground">Sending is on: assistants can also send messages to ticked chats. </strong>
+              <strong className="font-medium text-foreground">Sending is on: assistants you allowed to send can also send messages to ticked chats. </strong>
             )}
             Chats start unticked. For those, the bridge keeps only the name and last activity, so you can find them here, and no assistant
             can see them{sendEnabled ? " or send to them" : ""}.
@@ -705,7 +708,7 @@ export function AccountPage({ id }: { id: string }) {
         ) : logs.length === 0 ? (
           <Empty title="No activity yet" />
         ) : (
-          <Activity logs={logs} />
+          <Activity logs={logs} chats={chats} />
         )}
       </Section>
     </Page>

@@ -110,11 +110,12 @@ type Manager struct {
 
 	hold *holdBuffer // messages for unticked chats after linking, in memory only
 
-	// tickMu orders sends and tick changes: SendText holds it shared from
-	// its tick check until the message is stored, SetChatTicked holds it
-	// exclusively, so an untick never overlaps a send to the chat.
-	tickMu sync.RWMutex
-	send   transport // sendViaClient; tests replace it
+	// tickLocks orders sends and tick changes per chat: SendText holds a
+	// chat's lock shared from its tick check until the message is stored,
+	// SetChatTicked holds it exclusively, so an untick never overlaps a send
+	// to that chat. Other chats are not held up.
+	tickLocks chatLocks
+	send      transport // sendViaClient; tests replace it
 }
 
 // NewManager prepares the whatsmeow store (running its migrations), creates

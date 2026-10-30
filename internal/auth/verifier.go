@@ -23,6 +23,14 @@ type KeyInfo struct {
 	Kind       KeyKind   `json:"kind"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+	// CanSend is the consent to send, given when the key was created or the
+	// OAuth grant approved. Without it send_message is refused, even when the
+	// bridge has sending on. Keys and grants from before this choice existed
+	// have it off.
+	CanSend bool `json:"can_send"`
+	// OAuth is set when the credential is an OAuth access token; ID is then
+	// the grant id.
+	OAuth bool `json:"-"`
 }
 
 // ErrInvalidKey is returned for unknown, malformed or revoked keys.

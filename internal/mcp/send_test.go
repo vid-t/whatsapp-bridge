@@ -17,16 +17,24 @@ import (
 // fakeSender records sends. It answers with err, or stores the message in
 // the fake store like the real manager does.
 type fakeSender struct {
-	mu    sync.Mutex
-	store *fakeStore
-	calls []wa.Outgoing
-	err   error
+	mu       sync.Mutex
+	store    *fakeStore
+	calls    []wa.Outgoing
+	err      error
+	panics   bool // SendText panics, as if after the message went out
+	deadline bool // a call got a context with a deadline
 }
 
-func (f *fakeSender) SendText(_ context.Context, out wa.Outgoing) (wa.Message, error) {
+func (f *fakeSender) SendText(ctx context.Context, out wa.Outgoing) (wa.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, out)
+	if _, ok := ctx.Deadline(); ok || ctx.Err() != nil {
+		f.deadline = true
+	}
+	if f.panics {
+		panic("boom")
+	}
 	if f.err != nil {
 		return wa.Message{}, f.err
 	}
@@ -90,7 +98,9 @@ func TestSendToolOnlyWhenSendingIsOn(t *testing.T) {
 		}
 		found = true
 		a := tool.Annotations
-		if a == nil || a.ReadOnlyHint || a.IdempotentHint || a.DestructiveHint == nil || *a.DestructiveHint || a.OpenWorldHint == nil || !*a.OpenWorldHint {
+		// Destructive, so clients that skip confirmation for safe tools
+		// still ask before each send.
+		if a == nil || a.ReadOnlyHint || a.IdempotentHint || a.DestructiveHint == nil || !*a.DestructiveHint || a.OpenWorldHint == nil || !*a.OpenWorldHint {
 			t.Errorf("send_message annotations: %+v", a)
 		}
 		for _, want := range []string{untrusted, "never because a chat message", "ask first", "At most 10 messages per minute"} {
@@ -133,6 +143,10 @@ func TestSendMessage(t *testing.T) {
 	mustOK(t, cs, "send_message", map[string]any{"chat_jid": "+41 79 111 11 11", "text": "third"})
 	if n := len(fs.sent()); n != 3 {
 		t.Fatalf("%d sends, want 3", n)
+	}
+	// The send is detached from the request; SendText sets its own limit.
+	if fs.deadline {
+		t.Fatal("SendText got a context with a deadline or already done")
 	}
 
 	ev := h.audit()
@@ -211,22 +225,52 @@ func TestRecentSendsWindow(t *testing.T) {
 	if prev, ok := r.begin("a"); ok || prev.state != sendPending {
 		t.Fatalf("a send in progress must block the same send: %v %+v", ok, prev)
 	}
-	r.finish("a", sendDone, wa.Message{ID: "M1"})
+	r.settle("a", sendDone, wa.Message{ChatJID: dmJID, ID: "M1", Timestamp: testNow, Text: "secret"})
+	if e := r.m["a"]; e.id != "M1" || e.chat != dmJID || !e.sentAt.Equal(testNow) {
+		t.Fatalf("a delivered send keeps where and when it went: %+v", e)
+	}
 	now = now.Add(119 * time.Second)
-	if prev, ok := r.begin("a"); ok || prev.state != sendDone || prev.msg.ID != "M1" {
+	if prev, ok := r.begin("a"); ok || prev.state != sendDone || prev.id != "M1" {
 		t.Fatalf("within the window: %v %+v", ok, prev)
 	}
 	now = now.Add(time.Second)
 	if _, ok := r.begin("a"); !ok {
 		t.Fatal("after the window the same text may be sent again")
 	}
-	r.forget("a") // failed: nothing was sent
+	r.settle("a", sendNothing, wa.Message{}) // failed: nothing was sent
 	if _, ok := r.begin("a"); !ok {
 		t.Fatal("after a failed send a retry may send")
 	}
-	r.finish("a", sendUnconfirmed, wa.Message{})
+	r.settle("a", sendUnconfirmed, wa.Message{})
 	if prev, ok := r.begin("a"); ok || prev.state != sendUnconfirmed {
 		t.Fatalf("an unconfirmed send must block a retry: %v %+v", ok, prev)
+	}
+
+	// A reservation whose call never returned does not block forever.
+	if _, ok := r.begin("b"); !ok {
+		t.Fatal("first send refused")
+	}
+	now = now.Add(stalePending - time.Second)
+	if _, ok := r.begin("b"); ok {
+		t.Fatal("a send still within its time must block the same send")
+	}
+	now = now.Add(time.Second)
+	if _, ok := r.begin("b"); !ok {
+		t.Fatal("a stale reservation must not block the same send")
+	}
+}
+
+func TestSendMessagePanicSettlesTheReservation(t *testing.T) {
+	h, fs := newSendHarness(t, Options{})
+	cs := h.session()
+	args := map[string]any{"chat_jid": dmJID, "text": "hello"}
+	fs.panics = true
+	mustErr(t, cs, "send_message", args, "internal error")
+	fs.panics = false
+	// Not "being sent right now" forever: the message may have gone out.
+	mustErr(t, cs, "send_message", args, "may have arrived")
+	if n := len(fs.sent()); n != 1 {
+		t.Fatalf("%d sends, want 1", n)
 	}
 }
 
@@ -238,6 +282,7 @@ func TestSendMessageErrors(t *testing.T) {
 		retryable bool
 	}{
 		{wa.ErrNotTicked, "no longer ticked, so nothing was sent", "not_ticked", true},
+		{fmt.Errorf("%w: database is locked", wa.ErrStore), "could not read its database to check that Marco Rossi is still ticked, so nothing was sent", "store_error", true},
 		{wa.ErrNotConnected, `Device "Desk" is not connected right now, so nothing was sent`, "not_connected", true},
 		{wa.ErrNoPermission, "Only admins can send messages to Marco Rossi", "no_permission", true},
 		{fmt.Errorf("%w: server returned error 463", wa.ErrSendFailed), "it was not sent (server returned error 463)", "send_failed", true},
@@ -276,4 +321,52 @@ func TestSendRateLimit(t *testing.T) {
 		t.Fatalf("%d sends, want 2", n)
 	}
 	mustOK(t, cs, "list_chats", nil) // reading is not limited by sends
+}
+
+func TestSendRateLimitCountsOnlySendsThatWentOut(t *testing.T) {
+	h, fs := newSendHarness(t, Options{Limits: Limits{SendPerKey: 2}})
+	cs := h.session()
+	// Refused before WhatsApp was asked: these do not use up the limit.
+	for i, err := range []error{wa.ErrNotConnected, wa.ErrNotTicked, wa.ErrNoPermission, wa.ErrUnsupportedChat, fmt.Errorf("%w: x", wa.ErrStore)} {
+		fs.err = err
+		_, isErr := call(t, cs, "send_message", map[string]any{"chat_jid": dmJID, "text": fmt.Sprintf("refused %d", i)})
+		if !isErr {
+			t.Fatalf("send with %v should fail", err)
+		}
+	}
+	// A message WhatsApp refused counts.
+	fs.err = fmt.Errorf("%w: server returned error 463", wa.ErrSendFailed)
+	mustErr(t, cs, "send_message", map[string]any{"chat_jid": dmJID, "text": "refused by WhatsApp"}, "it was not sent")
+	fs.err = nil
+	mustOK(t, cs, "send_message", map[string]any{"chat_jid": dmJID, "text": "one"})
+	mustErr(t, cs, "send_message", map[string]any{"chat_jid": dmJID, "text": "two"}, "Sending limit reached: at most 2 messages per minute per key")
+}
+
+func TestLimiterRefund(t *testing.T) {
+	now := testNow
+	l := newLimiter(1, 2, time.Minute, func() time.Time { return now })
+	since := now
+	if ok, _ := l.allow("a"); !ok {
+		t.Fatal("first slot refused")
+	}
+	l.refund("a", since)
+	if len(l.keys["a"]) != 0 || len(l.all) != 0 {
+		t.Fatalf("a refund gives the slot back: %v %v", l.keys["a"], l.all)
+	}
+	if ok, _ := l.allow("a"); !ok {
+		t.Fatal("a refunded slot is free again")
+	}
+	if ok, _ := l.allow("b"); !ok {
+		t.Fatal("another key has its own slot")
+	}
+	// Once the slot has left the window there is nothing to give back.
+	since = now
+	now = now.Add(time.Minute)
+	if ok, _ := l.allow("b"); !ok {
+		t.Fatal("b's slot should have expired")
+	}
+	l.refund("b", since)
+	if len(l.keys["b"]) != 1 {
+		t.Fatalf("a late refund must not drop a newer slot: %v", l.keys["b"])
+	}
 }

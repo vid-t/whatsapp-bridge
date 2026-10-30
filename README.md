@@ -91,12 +91,15 @@ Every message comes with a `wa://` citation, so you can check the source of an a
 **Sending is off unless you turn it on.** Set `BRIDGE_ALLOW_SEND=1` and your assistant also
 gets `send_message`, which sends a text message to one ticked chat from your account. It
 cannot send to an unticked chat, and once you untick a chat nothing more can be sent to it.
+Each assistant must also be allowed to send when you approve it. Assistants you approved
+before stay read-only until you connect them again.
 [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#sending-messages) has the details and limits.
 
 ## Privacy and safety
 
 - **Read-only unless you turn on sending.** By default the bridge sends nothing. With
-  `BRIDGE_ALLOW_SEND=1`, assistants can send text messages, to ticked chats only. It never
+  `BRIDGE_ALLOW_SEND=1`, assistants you allowed to send can send text messages, to ticked
+  chats only. It never
   sends an "online" status or read receipts, and the tools cannot change or delete anything.
 - **Only ticked chats.** Chats start unticked. The bridge never stores the messages of an
   unticked chat, only its name and last activity for the chat list, so no assistant can see

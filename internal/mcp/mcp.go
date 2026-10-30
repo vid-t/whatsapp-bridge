@@ -3,14 +3,16 @@
 // bearer key of kind "mcp", or an OAuth access token when the verifier accepts
 // them (internal/oauth), and get six read tools over the ticked WhatsApp
 // chats. When the operator turns sending on (Options.Sender), a seventh tool,
-// send_message, sends text to ticked chats. Nothing here can change or delete
-// anything.
+// send_message, sends text to ticked chats, for keys and OAuth grants that
+// were given the consent to send (auth.KeyInfo.CanSend); others are refused.
+// Nothing here can change or delete anything.
 //
 // Layers, outermost first:
 //
 //	bearer key check (401 + WWW-Authenticate)  -> HTTP request limit (429 + Retry-After)
 //	-> SDK streamable handler (stateless, JSON responses)
-//	-> tools/call middleware: tool-call limit (MCP tool error) and audit
+//	-> tools/call middleware: tool-call limit and consent to send (MCP tool
+//	   errors) and audit
 //	-> tool handler (store queries, plain-text results)
 package mcp
 
@@ -106,6 +108,7 @@ type AuditEvent struct {
 	Time       time.Time     `json:"time"`
 	KeyID      string        `json:"key_id"`
 	KeyLabel   string        `json:"key_label,omitempty"`
+	SessionID  string        `json:"session_id,omitempty"` // the account a send went to, once the chat resolved; empty for bridge-wide events
 	Tool       string        `json:"tool"`
 	ArgsSHA256 string        `json:"args_sha256"` // hex SHA-256 of the canonical JSON arguments
 	ChatJIDs   []string      `json:"chat_jids,omitempty"`
@@ -264,8 +267,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hand the verified key to the SDK, which copies it into every request's
-	// Extra.TokenInfo. UserID binds any session to this key.
-	info := &sdkauth.TokenInfo{UserID: key.ID, Extra: map[string]any{"label": key.Label}}
+	// Extra.TokenInfo. UserID binds any session to this key. can_send is the
+	// key's or grant's consent to send; toolCallMiddleware enforces it.
+	info := &sdkauth.TokenInfo{UserID: key.ID, Extra: map[string]any{"label": key.Label, "can_send": key.CanSend, "oauth": key.OAuth}}
 	pass := sdkauth.RequireBearerToken(func(context.Context, string, *http.Request) (*sdkauth.TokenInfo, error) {
 		return info, nil
 	}, &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})

@@ -131,6 +131,8 @@ export interface KeyInfo {
   kind?: string;
   created_at: string;
   last_used_at?: string | null;
+  /** Created with sending allowed. Without it the key only reads, even when the bridge has sending on. */
+  can_send?: boolean;
 }
 
 export interface NewKey extends KeyInfo {
@@ -145,6 +147,8 @@ export interface Grant {
   client_id: string;
   created_at: string;
   last_used_at?: string | null;
+  /** Approved on a consent page that allowed sending. Without it the assistant only reads. */
+  can_send?: boolean;
 }
 
 export interface Member {

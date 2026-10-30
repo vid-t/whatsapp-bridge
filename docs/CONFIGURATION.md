@@ -58,17 +58,23 @@ These rules apply:
 - **No accidental repeats.** The same text from the same assistant to the same chat is not
   sent again within 2 minutes, so a retried call cannot deliver it twice. When WhatsApp does
   not confirm a message in time, the assistant is told it may have arrived and not to resend it.
+  If WhatsApp confirms it after the bridge stops waiting, it is on the recipient's phone but
+  not in the bridge's record, and the activity log shows it as unconfirmed with its id.
 - **Limits.** At most 10 messages per minute per assistant and 20 for the whole bridge.
   WhatsApp restricts accounts that send in bulk.
 - **Stored and logged.** A sent message is stored with the chat, so `read_chat` shows it.
-  The account's activity log records each send (chat, message id, length and key), never
-  the text.
+  The account's activity log records each send (chat, message id, length and key) and each
+  refused send with the reason, never the text.
 - **Told everywhere.** The web UI, the sign-in page for assistants and `get_status` say
   that sending is on.
 
-The setting applies to assistants that are already connected, and to API keys. They see
-`send_message` after they reconnect. First revoke any you do not want sending, under
-**Connect AI › Connected assistants** and **Keys** in the web UI.
+Sending also needs consent, one assistant and one key at a time. An assistant can send
+only if the page where it was approved said it could send. A key can send only if it was
+created with **Let this key send messages to ticked chats** ticked. Assistants approved and
+keys created while sending was off, or before this version, stay read-only when you turn it
+on: `send_message` refuses them and says nothing was sent. To let one send, connect the
+assistant again and click **Allow**, or create a new key with sending. **Connect AI** and
+**Keys** in the web UI mark those that can send.
 
 ## Sign-in for other people
 

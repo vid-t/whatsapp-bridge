@@ -11,7 +11,8 @@
 //  3. The user's browser opens /oauth/authorize, signs in (access code,
 //     email link, Google or Microsoft) if it has no bridge session, and
 //     approves access on a consent page (read-only, or read and send when
-//     the bridge has sending on).
+//     the bridge has sending on). The grant records which page was approved:
+//     a grant approved read-only stays read-only when sending is turned on.
 //  4. The client exchanges the single-use code (PKCE S256 only) at
 //     /oauth/token for an opaque access token (wb_at_, 1 hour) and a rotating
 //     refresh token (wb_rt_, 30 days), and calls /mcp with the access token.
@@ -58,8 +59,8 @@ const (
 	// GrantsPath is mounted on the web layer's mux through RegisterAPI.
 	GrantsPath = "/api/oauth/grants"
 
-	// Scope is the only scope: use of the MCP tools (read-only unless the
-	// bridge has sending on).
+	// Scope is the only scope: use of the MCP tools. Sending is not a scope;
+	// the grant records it at consent (Grant.CanSend).
 	Scope = "mcp"
 	// ResourcePath is the protected resource, relative to the issuer.
 	ResourcePath = "/mcp"
@@ -137,6 +138,14 @@ CREATE TABLE IF NOT EXISTS bridge_oauth_tokens (
 CREATE INDEX IF NOT EXISTS bridge_oauth_tokens_grant ON bridge_oauth_tokens(grant_id);
 `
 
+// migrations add columns to tables from older versions.
+var migrations = []struct{ table, column, decl string }{
+	// Consent to send, from the consent page through the code to the grant.
+	// Grants from before it existed stay read-only.
+	{"bridge_oauth_codes", "can_send", `INTEGER NOT NULL DEFAULT 0`},
+	{"bridge_oauth_grants", "can_send", `INTEGER NOT NULL DEFAULT 0`},
+}
+
 // Deps are the bridge services the authorization server uses.
 type Deps struct {
 	// DB is the bridge database; the oauth tables are created on Register.
@@ -163,7 +172,8 @@ type Options struct {
 	// authorization request after sign-in.
 	SignInProviders []string
 	// SendEnabled says on the consent page that the assistant will be able
-	// to send messages to ticked chats, not only read them.
+	// to send messages to ticked chats, not only read them, and records that
+	// consent on the grant. Without it grants are approved read-only.
 	SendEnabled bool
 
 	// Tests.
@@ -186,7 +196,7 @@ type Server struct {
 	pages     *template.Template
 	css       asset
 	providers []string
-	send      bool // the consent page says the app can send to ticked chats
+	send      bool // the consent page offers sending to ticked chats, and grants record it
 	lastPrune atomic.Int64
 }
 
@@ -222,6 +232,11 @@ func newServer(deps Deps, opts Options) (*Server, error) {
 	}
 	if _, err := deps.DB.ExecContext(context.Background(), schema); err != nil {
 		return nil, fmt.Errorf("oauth: schema: %w", err)
+	}
+	for _, m := range migrations {
+		if err := auth.AddColumn(context.Background(), deps.DB, m.table, m.column, m.decl); err != nil {
+			return nil, fmt.Errorf("oauth: migrate %s: %w", m.table, err)
+		}
 	}
 	log := deps.Log
 	if log == nil {

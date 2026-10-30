@@ -80,8 +80,10 @@ type Options struct {
 	// code, in display order ("email", "google", "microsoft"); /api/me lists
 	// them after "code".
 	SignInProviders []string
-	// SendEnabled tells the UI, through /api/me, that assistants may send
-	// messages to ticked chats, so it can say so where chats are ticked.
+	// SendEnabled tells the UI, through /api/me (signed-in only), that
+	// assistants may send messages to ticked chats, so it can say so where
+	// chats are ticked and offer keys that can send. Keys may be created with
+	// sending only when it is on.
 	SendEnabled bool
 }
 

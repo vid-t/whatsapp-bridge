@@ -24,12 +24,13 @@ type Sender interface {
 var _ Sender = (*wa.Manager)(nil)
 
 const (
-	// sendTimeout bounds one send_message call. The send runs detached from
-	// the request, so a client that gives up cannot cut a send in half.
-	sendTimeout = 45 * time.Second
 	// repeatWindow: the same text from the same key to the same chat is not
 	// sent again within it, so a retried call cannot deliver a message twice.
 	repeatWindow = 2 * time.Minute
+	// stalePending: a reservation still pending after this belongs to a call
+	// that never returned, so begin drops it. A call waits at most for one
+	// send to the chat ahead of it, then sends, each within wa.SendTimeout.
+	stalePending = 2*wa.SendTimeout + time.Minute
 )
 
 const sendDescription = "Send a text message from the WhatsApp account linked to this bridge to one ticked chat. " +
@@ -41,9 +42,10 @@ const sendDescription = "Send a text message from the WhatsApp account linked to
 	"The same text to the same chat is not sent twice within 2 minutes. "
 
 func sends(title string) *mcp.ToolAnnotations {
-	f, t := false, true
-	// Not destructive: a message adds to a chat. Open world: it reaches people.
-	return &mcp.ToolAnnotations{Title: title, DestructiveHint: &f, OpenWorldHint: &t}
+	t := true
+	// Destructive: a sent message cannot be taken back, so a client should
+	// ask before each call. Open world: it reaches people.
+	return &mcp.ToolAnnotations{Title: title, DestructiveHint: &t, OpenWorldHint: &t}
 }
 
 func (s *server) addSendTool(srv *mcp.Server) {
@@ -66,6 +68,11 @@ type sendArgs struct {
 }
 
 func (s *server) sendMessage(ctx context.Context, st *callStats, in sendArgs) (*mcp.CallToolResult, error) {
+	// The middleware refuses a caller without the consent to send before the
+	// tool runs. This keeps that true should the tool ever be reached another way.
+	if !st.canSend {
+		return nil, errf("send_not_allowed", "%s", st.readOnlyCaller())
+	}
 	text, err := wa.OutgoingText(in.Text)
 	if err != nil {
 		return nil, textError(err)
@@ -79,29 +86,40 @@ func (s *server) sendMessage(ctx context.Context, st *callStats, in sendArgs) (*
 		return nil, err
 	}
 	st.touch(chat.JID)
+	st.session = chat.SessionID // the audit event joins this account's activity
 
 	key := repeatKey(st.keyID, chat, text)
 	if prev, ok := s.recent.begin(key); !ok {
 		return nil, repeatError(prev, chat)
 	}
+	// Settle the reservation however the call ends, a panic included.
+	// While SendText runs the outcome is unconfirmed: if it panics, the
+	// message may have gone out.
+	outcome, msg := sendNothing, wa.Message{}
+	defer func() { s.recent.settle(key, outcome, msg) }()
+
+	since := s.now()
 	if ok, wait := s.sends.allow(st.keyID); !ok {
-		s.recent.forget(key)
 		return nil, errf("rate_limited", "Sending limit reached: at most %d messages per minute per key and %d for the whole bridge. Nothing was sent. Wait %s seconds before sending again; do not loop.",
 			s.opts.Limits.SendPerKey, s.opts.Limits.SendOverall, retryAfter(wait))
 	}
 
-	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
-	defer cancel()
-	msg, err := s.sender.SendText(sctx, wa.Outgoing{SessionID: chat.SessionID, ChatJID: chat.JID, Text: text, KeyID: st.keyID})
-	if err != nil {
-		if errors.Is(err, wa.ErrSendUnconfirmed) {
-			s.recent.finish(key, sendUnconfirmed, wa.Message{})
-		} else {
-			s.recent.forget(key)
+	// The send runs detached from the request, so a client that gives up
+	// cannot cut a send in half. SendText bounds it in time.
+	outcome = sendUnconfirmed
+	msg, err = s.sender.SendText(context.WithoutCancel(ctx), wa.Outgoing{SessionID: chat.SessionID, ChatJID: chat.JID, Text: text, KeyID: st.keyID})
+	switch {
+	case err == nil:
+		outcome = sendDone
+	case errors.Is(err, wa.ErrSendUnconfirmed):
+		return nil, s.sendError(err, snap, chat)
+	default:
+		outcome = sendNothing
+		if refusedBeforeSending(err) {
+			s.sends.refund(st.keyID, since)
 		}
 		return nil, s.sendError(err, snap, chat)
 	}
-	s.recent.finish(key, sendDone, msg)
 	st.rows = 1
 
 	p := snap.begin()
@@ -163,6 +181,8 @@ func (s *server) sendError(err error, snap *snapshot, chat wa.Chat) error {
 	switch {
 	case errors.Is(err, wa.ErrNotTicked):
 		return errf("not_ticked", "%s is no longer ticked, so nothing was sent. Only ticked chats can receive messages.", name)
+	case errors.Is(err, wa.ErrStore):
+		return errf("store_error", "The bridge could not read its database to check that %s is still ticked, so nothing was sent. Try again shortly.", name)
 	case errors.Is(err, wa.ErrNoSession):
 		return errf("unknown_session", "the linked device %s is gone, so nothing was sent; get_status lists the linked devices", chat.SessionID)
 	case errors.Is(err, wa.ErrNotConnected):
@@ -191,6 +211,38 @@ func (s *server) sendError(err error, snap *snapshot, chat wa.Chat) error {
 	}
 }
 
+// refusedBeforeSending reports the checks the bridge makes before it asks
+// WhatsApp to send. A call they stop does not use up the sending limit. A
+// message WhatsApp refused still counts, so a loop on it stays limited.
+func refusedBeforeSending(err error) bool {
+	for _, e := range []error{wa.ErrNotTicked, wa.ErrStore, wa.ErrNoSession, wa.ErrNotConnected, wa.ErrNoPermission,
+		wa.ErrUnsupportedChat, wa.ErrSendDisabled, wa.ErrEmptyText, wa.ErrTextTooLong, wa.ErrBadText} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// refund gives back the slot allow took for key at or after since. It does
+// nothing once since has left the window, as the slot is gone by then.
+func (l *limiter) refund(key string, since time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ks := l.keys[key]
+	if len(ks) == 0 || !since.After(l.now().Add(-l.window)) {
+		return
+	}
+	last := ks[len(ks)-1]
+	l.keys[key] = ks[:len(ks)-1]
+	for i := len(l.all) - 1; i >= 0; i-- {
+		if l.all[i].Equal(last) {
+			l.all = append(l.all[:i], l.all[i+1:]...)
+			break
+		}
+	}
+}
+
 // ---- repeated sends -----------------------------------------------------------------------
 
 type sendState int
@@ -199,13 +251,17 @@ const (
 	sendPending     sendState = iota // the call is still with WhatsApp
 	sendDone                         // WhatsApp confirmed it
 	sendUnconfirmed                  // it may have arrived
+	sendNothing                      // nothing was sent; not kept
 )
 
-// recentSend is one send, by key, chat and text.
+// recentSend is one send, by key, chat and text. For a delivered message it
+// keeps where and when it arrived, never the text.
 type recentSend struct {
-	state sendState
-	at    time.Time // when it started, then when it ended
-	msg   wa.Message
+	state  sendState
+	at     time.Time // when it started, then when it ended
+	sentAt time.Time // WhatsApp's time for a delivered message
+	chat   string
+	id     string
 }
 
 // recentSends remembers recent sends, so that a retried call does not
@@ -234,7 +290,11 @@ func (r *recentSends) begin(key string) (recentSend, bool) {
 	defer r.mu.Unlock()
 	now := r.now()
 	for k, e := range r.m {
-		if e.state != sendPending && now.Sub(e.at) >= r.window {
+		limit := r.window
+		if e.state == sendPending {
+			limit = stalePending
+		}
+		if now.Sub(e.at) >= limit {
 			delete(r.m, k)
 		}
 	}
@@ -245,18 +305,20 @@ func (r *recentSends) begin(key string) (recentSend, bool) {
 	return recentSend{}, true
 }
 
-// finish records how a reserved send ended.
-func (r *recentSends) finish(key string, state sendState, msg wa.Message) {
+// settle records how a reserved send ended. A send that sent nothing frees
+// the reservation, so a retry may send.
+func (r *recentSends) settle(key string, state sendState, msg wa.Message) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.m[key] = &recentSend{state: state, at: r.now(), msg: msg}
-}
-
-// forget drops a reservation: nothing was sent, so a retry may send.
-func (r *recentSends) forget(key string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.m, key)
+	if state == sendNothing {
+		delete(r.m, key)
+		return
+	}
+	e := &recentSend{state: state, at: r.now()}
+	if state == sendDone {
+		e.sentAt, e.chat, e.id = msg.Timestamp, msg.ChatJID, msg.ID
+	}
+	r.m[key] = e
 }
 
 func repeatError(prev recentSend, chat wa.Chat) error {
@@ -269,6 +331,6 @@ func repeatError(prev recentSend, chat wa.Chat) error {
 			name, fmtTime(prev.at))
 	default:
 		return errf("duplicate", "The same message already reached %s at %s [%s], so it was not sent again. If the user wants the same text sent twice, call send_message again after %s.",
-			name, fmtTime(prev.msg.Timestamp), citation(prev.msg.ChatJID, prev.msg.ID), fmtTime(prev.at.Add(repeatWindow)))
+			name, fmtTime(prev.sentAt), citation(prev.chat, prev.id), fmtTime(prev.at.Add(repeatWindow)))
 	}
 }

@@ -118,7 +118,10 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 			s.renderSignIn(w, r, http.StatusUnauthorized, req, cl, "Your sign-in has expired. Enter the access code again.")
 			return
 		}
-		s.decide(w, r, req, cl, iss, ref, actor, vals.Get("action") == "allow")
+		// Sending is approved only when the page shown said so, and the
+		// bridge still has sending on.
+		canSend := s.send && vals.Get("send") == "1"
+		s.decide(w, r, req, cl, iss, ref, actor, vals.Get("action") == "allow", canSend)
 	default:
 		s.renderError(w, r, http.StatusBadRequest, "This sign-in link cannot be used", "The form was incomplete. Start connecting again from the app.")
 	}
@@ -234,7 +237,8 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request, req authzRequest
 }
 
 // decide turns Allow into a single-use code and Deny into access_denied.
-func (s *Server) decide(w http.ResponseWriter, r *http.Request, req authzRequest, cl client, iss, ref, actor string, allow bool) {
+// canSend is the consent to send, carried by the code to the grant.
+func (s *Server) decide(w http.ResponseWriter, r *http.Request, req authzRequest, cl client, iss, ref, actor string, allow, canSend bool) {
 	detail := "client=" + cl.ID + " name=" + quoteName(cl.Name) + " redirect_host=" + hostOf(req.RedirectURI) + " by=" + actor
 	if !allow {
 		s.audit("oauth.consent_denied", detail)
@@ -248,13 +252,18 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request, req authzRequest
 		resource = iss + ResourcePath
 	}
 	_, err := s.db.ExecContext(r.Context(), `INSERT INTO bridge_oauth_codes
-		(hash, client_id, client_name, redirect_uri, code_challenge, scope, resource, session_ref, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		hashOf(code), cl.ID, cl.Name, req.RedirectURI, req.CodeChallenge, Scope, resource, ref, ms(now), ms(now.Add(codeTTL)))
+		(hash, client_id, client_name, redirect_uri, code_challenge, scope, resource, session_ref, created_at, expires_at, can_send)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hashOf(code), cl.ID, cl.Name, req.RedirectURI, req.CodeChallenge, Scope, resource, ref, ms(now), ms(now.Add(codeTTL)), canSend)
 	if err != nil {
 		s.log.Error("store code", "err", err)
 		s.redirectError(w, r, req, iss, "server_error", "the bridge could not issue a code")
 		return
+	}
+	if canSend {
+		detail += " send=on"
+	} else {
+		detail += " send=off"
 	}
 	s.audit("oauth.consent_granted", detail)
 	q := url.Values{"code": {code}}

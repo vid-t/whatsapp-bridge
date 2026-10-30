@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit -p .",
+    "test": "node --test \"src/**/*.test.ts\"",
     "build": "tsc --noEmit -p . && vite build && node scripts/check-dist.mjs",
     "preview": "vite preview",
     "preview:mock": "node scripts/preview-mock.mjs",

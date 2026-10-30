@@ -1,16 +1,19 @@
 import { KeyRoundIcon, Loader2Icon, PlusIcon, ShieldAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Avatar } from "@/components/avatar";
+import { CanSendBadge } from "@/components/can-send";
 import { useConfirm } from "@/components/confirm";
 import { CopyButton } from "@/components/copy";
 import { Empty, FieldError, FieldHint, LoadingRows, RetryLine } from "@/components/feedback";
 import { Page, PageHeader, Section } from "@/components/shell";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAccess } from "@/lib/access";
 import { ApiError, api, errorText } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { ago, fmtDate } from "@/lib/format";
 import { stagger } from "@/lib/motion";
 import { useNotice } from "@/lib/notice";
@@ -21,11 +24,13 @@ import { enc } from "@/lib/utils";
 export function KeysPage() {
   useTitle("Keys");
   const access = useAccess();
+  const { sendEnabled } = useAuth();
   const confirm = useConfirm();
   const { notify } = useNotice();
   const [keys, setKeys] = useState<KeyInfo[] | null>(null);
   const [error, setError] = useState("");
   const [label, setLabel] = useState("");
+  const [canSend, setCanSend] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [created, setCreated] = useState<NewKey | null>(null);
@@ -52,8 +57,9 @@ export function KeysPage() {
     setBusy(true);
     setFormError("");
     try {
-      setCreated(await api.post<NewKey>("/keys", { label: l }));
+      setCreated(await api.post<NewKey>("/keys", { label: l, can_send: sendEnabled && canSend }));
       setLabel("");
+      setCanSend(false);
       void load();
     } catch (err) {
       setFormError(errorText(err));
@@ -120,6 +126,26 @@ export function KeysPage() {
               <FieldHint id="key-label-hint">What uses the key, so you can revoke the right one later.</FieldHint>
             )}
           </div>
+          {sendEnabled && (
+            <div className="flex max-w-xl items-start gap-3">
+              <Checkbox
+                id="key-send"
+                checked={canSend}
+                disabled={busy}
+                onCheckedChange={(v) => setCanSend(v === true)}
+                aria-describedby="key-send-hint"
+                className="mt-px"
+              />
+              <div className="grid gap-1.5">
+                <Label htmlFor="key-send" className="cursor-pointer leading-snug">
+                  Let this key send messages to ticked chats
+                </Label>
+                <FieldHint id="key-send-hint">
+                  Without this the key can only read. You cannot add sending to a key later; create a new key instead.
+                </FieldHint>
+              </div>
+            </div>
+          )}
         </form>
         {created && (
           <div key={created.id} className="page-enter grid gap-3 rounded-xl border bg-subtle p-5 sm:p-6" role="status">
@@ -127,7 +153,10 @@ export function KeysPage() {
               <ShieldAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <span>
                 <strong className="font-medium">Copy the key for {created.label} now.</strong>{" "}
-                <span className="text-muted-foreground">It is shown only once; the bridge keeps only a hash.</span>
+                <span className="text-muted-foreground">
+                  It is shown only once; the bridge keeps only a hash.{" "}
+                  {created.can_send ? "It can send messages to ticked chats." : "It can only read."}
+                </span>
               </span>
             </p>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
@@ -148,7 +177,14 @@ export function KeysPage() {
         )}
       </Section>
 
-      <Section title="Active keys" lead="Revoke a key and whatever uses it stops at once.">
+      <Section
+        title="Active keys"
+        lead={
+          sendEnabled
+            ? "Keys marked Can send may send messages to ticked chats; the others only read. Revoke a key and whatever uses it stops at once."
+            : "Revoke a key and whatever uses it stops at once."
+        }
+      >
         {error ? (
           <RetryLine text={error} onRetry={() => void load()} />
         ) : keys === null ? (
@@ -176,7 +212,10 @@ export function KeysPage() {
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={k.label} group />
                       <div className="grid min-w-0">
-                        <span className="truncate font-medium">{k.label}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-medium">{k.label}</span>
+                          {k.can_send && <CanSendBadge />}
+                        </span>
                         <span className="truncate font-mono text-xs text-muted-foreground">{k.id}</span>
                       </div>
                     </div>

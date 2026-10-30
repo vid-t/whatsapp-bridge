@@ -1,6 +1,7 @@
 // Command whatsapp-bridge is a WhatsApp linked device that shares the chats
 // you tick with AI assistants over MCP. It is read-only unless
-// BRIDGE_ALLOW_SEND is set; then assistants may also send text to ticked chats.
+// BRIDGE_ALLOW_SEND is set; then assistants allowed to send (when they were
+// approved, or their key created) may also send text to ticked chats.
 //
 //	whatsapp-bridge serve              start the HTTP server (default)
 //	whatsapp-bridge pair               pair a new device from the terminal via QR
@@ -171,7 +172,7 @@ func main() {
 			logger.Warn("open mode: no access code; anyone who can reach this address can use the UI")
 		}
 		if *allowSend {
-			logger.Warn("sending is on (BRIDGE_ALLOW_SEND): AI assistants can send text messages to ticked chats")
+			logger.Warn("sending is on (BRIDGE_ALLOW_SEND): AI assistants allowed to send can send text messages to ticked chats; those approved read-only stay read-only")
 		} else {
 			logger.Info("read-only: sending is off; set BRIDGE_ALLOW_SEND=1 to let assistants send to ticked chats")
 		}
@@ -411,7 +412,11 @@ func runServe(ctx context.Context, addr string, cfg serveConfig, mgr *wa.Manager
 		PublicURL: cfg.publicURL,
 		OAuth:     oauthSrv != nil,
 		Audit: func(e mcp.AuditEvent) {
-			audit("mcp.tool", e.Detail())
+			// A send is filed under its account, so the account page shows it
+			// and any refusal; other tool calls stay bridge-wide.
+			actx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			mgr.AuditFor(actx, e.SessionID, "mcp.tool", e.Detail())
 		},
 	}
 	if cfg.allowSend {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -17,13 +18,18 @@ import (
 
 // Sending is off unless the operator turns it on (Options.AllowSend). When it
 // is on, the bridge sends plain text, and only to a chat that is ticked at the
-// moment it sends. Ticking and unticking wait for a send in progress, so once
-// an untick returns, nothing more can be sent to that chat. Sending never
-// sends presence ("online", typing) or read receipts.
+// moment it sends. Ticking or unticking a chat waits for a send to that chat
+// in progress, so once an untick returns, nothing more can be sent to it.
+// Other chats are not held up. Sending never sends presence ("online",
+// typing) or read receipts.
 
 // MaxSendRunes caps one outgoing message. WhatsApp allows more, but a longer
 // text from an assistant is almost always a mistake.
 const MaxSendRunes = 4096
+
+// SendTimeout bounds one send from the moment it holds the chat's lock: the
+// tick check, whatsmeow's lookups and the wait for WhatsApp to confirm.
+const SendTimeout = 45 * time.Second
 
 // sendAckTimeout bounds the wait for WhatsApp to acknowledge a message once
 // it is on the wire (whatsmeow's default is 75 seconds).
@@ -43,6 +49,9 @@ var (
 	// ErrSendUnconfirmed means the message may have gone out, but WhatsApp
 	// did not confirm it in time. Sending it again may deliver it twice.
 	ErrSendUnconfirmed = errors.New("wa: WhatsApp did not confirm the message in time")
+	// ErrStore means the bridge could not read the chat from its database,
+	// so it could not check the tick. Nothing was sent.
+	ErrStore = errors.New("wa: the bridge could not read its database")
 )
 
 // Outgoing is a text message to send.
@@ -53,7 +62,9 @@ type Outgoing struct {
 	KeyID     string // the key or OAuth grant that asked; logged, never the text
 }
 
-// sent is what a transport reports for a message WhatsApp accepted.
+// sent is what a transport reports for a message WhatsApp accepted. On an
+// error it still carries the message id when there is one, so a message
+// that was not confirmed can be found later.
 type sent struct {
 	id   string
 	at   time.Time
@@ -105,9 +116,11 @@ func sendTarget(chatJID string) (types.JID, error) {
 
 // SendText sends a text message to a ticked chat, stores it with the chat's
 // messages and logs that it was sent (never the text). It fails with
-// ErrSendDisabled unless Options.AllowSend is set, and with ErrNotTicked for
-// a chat that is unticked or unknown. Errors other than ErrSendUnconfirmed
-// mean nothing was sent.
+// ErrSendDisabled unless Options.AllowSend is set, with ErrNotTicked for a
+// chat that is unticked or unknown, and with ErrStore when it cannot read
+// the tick. Errors other than ErrSendUnconfirmed mean nothing was sent. The
+// send is bounded by SendTimeout once it holds the chat's lock; the caller's
+// ctx can end it sooner.
 func (m *Manager) SendText(ctx context.Context, out Outgoing) (Message, error) {
 	if !m.opts.AllowSend {
 		return Message{}, ErrSendDisabled
@@ -125,12 +138,20 @@ func (m *Manager) SendText(ctx context.Context, out Outgoing) (Message, error) {
 		return Message{}, err
 	}
 
-	// Hold the tick lock, shared, from the tick check until the message is
-	// stored. An untick waits for this send to end, and no send can pass the
-	// check once an untick has started.
-	m.tickMu.RLock()
-	defer m.tickMu.RUnlock()
-	if ticked, _ := m.chatTicked(ctx, s.id, out.ChatJID); !ticked {
+	// Hold the chat's lock, shared, from the tick check until the message is
+	// stored. An untick of the chat waits for this send to end, and no send
+	// can pass the check once an untick has started. The time limit starts
+	// now, so a send that waited for the lock still gets its full time.
+	unlock := m.tickLocks.rlock(s.id, out.ChatJID)
+	defer unlock()
+	ctx, cancel := context.WithTimeout(ctx, SendTimeout)
+	defer cancel()
+	ticked, _, err := m.readTick(ctx, s.id, out.ChatJID)
+	if err != nil {
+		m.log.Warn("read chat tick before sending; nothing sent", "session", s.id, "err", err)
+		return Message{}, fmt.Errorf("%w: %v", ErrStore, err)
+	}
+	if !ticked {
 		return Message{}, ErrNotTicked
 	}
 	if s.getState() != StateConnected {
@@ -138,11 +159,13 @@ func (m *Manager) SendText(ctx context.Context, out Outgoing) (Message, error) {
 	}
 	res, err := m.send(ctx, s, to, text)
 	if err != nil {
-		typ := "message.failed"
+		typ, detail := "message.failed", fmt.Sprintf("chat=%s key=%s", out.ChatJID, out.KeyID)
 		if errors.Is(err, ErrSendUnconfirmed) {
-			typ = "message.unconfirmed"
+			// WhatsApp may still deliver it. The id lets someone match it
+			// with the chat on the phone.
+			typ, detail = "message.unconfirmed", fmt.Sprintf("chat=%s id=%s key=%s", out.ChatJID, res.id, out.KeyID)
 		}
-		m.appendLog(m.ctx(5*time.Second), s.id, typ, fmt.Sprintf("chat=%s key=%s", out.ChatJID, out.KeyID))
+		m.appendLog(m.ctx(5*time.Second), s.id, typ, detail)
 		return Message{}, err
 	}
 
@@ -175,11 +198,12 @@ func (m *Manager) sendViaClient(ctx context.Context, s *session, to types.JID, t
 	if cli == nil || !cli.IsConnected() || !cli.IsLoggedIn() {
 		return sent{}, ErrNotConnected
 	}
+	id := cli.GenerateMessageID()
 	resp, err := cli.SendMessage(ctx, to, &waE2E.Message{Conversation: proto.String(text)},
-		whatsmeow.SendRequestExtra{ID: cli.GenerateMessageID(), Timeout: sendAckTimeout, CheckPermissions: true})
+		whatsmeow.SendRequestExtra{ID: id, Timeout: sendAckTimeout, CheckPermissions: true})
 	if err != nil {
-		m.log.Warn("send message", "session", s.id, "err", err)
-		return sent{}, sendError(err)
+		m.log.Warn("send message", "session", s.id, "id", id, "err", err)
+		return sent{id: string(id)}, sendError(err)
 	}
 	out := sent{id: string(resp.ID), at: resp.Timestamp.UTC()}
 	if resp.Timestamp.IsZero() {
@@ -196,18 +220,104 @@ func (m *Manager) sendViaClient(ctx context.Context, s *session, to types.JID, t
 // unconfirmed, because a retry that delivers twice is worse than a user who
 // checks their phone.
 func sendError(err error) error {
-	var disc *whatsmeow.DisconnectedError
 	switch {
 	case errors.Is(err, whatsmeow.ErrNoPermissionInGroup):
 		return ErrNoPermission
 	case errors.Is(err, whatsmeow.ErrNotLoggedIn):
 		return ErrNotConnected
-	case errors.Is(err, whatsmeow.ErrMessageTimedOut), errors.Is(err, whatsmeow.ErrNotConnected), errors.As(err, &disc),
+	case beforeSending(err):
+		return fmt.Errorf("%w: %v", ErrSendFailed, err)
+	case errors.Is(err, whatsmeow.ErrMessageTimedOut), errors.Is(err, whatsmeow.ErrNotConnected), errors.As(err, new(*whatsmeow.DisconnectedError)),
 		errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		// The connection dropped or the wait ended, perhaps after the
 		// message went out.
 		return fmt.Errorf("%w: %v", ErrSendUnconfirmed, err)
 	default:
 		return fmt.Errorf("%w: %v", ErrSendFailed, err)
+	}
+}
+
+// preSendSteps are the labels whatsmeow puts on the lookups SendMessage
+// makes before the message goes out (checked against the version in go.mod):
+// group members, the LID for a phone number, and the recipients' devices.
+// A dropped connection or an expired wait inside one of them sent nothing.
+// If whatsmeow renames them, such errors read as unconfirmed again, which
+// is the safe side.
+var preSendSteps = []string{
+	"failed to get group members: ",
+	"failed to get LID for PN ",
+	"failed to get user info for ",
+	"failed to get device list: ",
+}
+
+// beforeSending reports an error that provably came before the message went
+// out: a dropped server query (an "info query" in whatsmeow; the message
+// itself is a "message send") or a failure in one of the preSendSteps.
+func beforeSending(err error) bool {
+	var disc *whatsmeow.DisconnectedError
+	if errors.As(err, &disc) && strings.HasPrefix(disc.Action, whatsmeow.ErrIQDisconnected.Action) {
+		return true
+	}
+	for _, step := range preSendSteps {
+		if strings.HasPrefix(err.Error(), step) {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- per-chat locks ---------------------------------------------------------------------
+
+// chatLocks hands out one read-write lock per (session, chat). SendText holds
+// a chat's lock shared and SetChatTicked holds it exclusively, so an untick
+// waits only for sends to that chat. A lock is dropped when nobody holds or
+// waits for it. The zero value is ready to use.
+type chatLocks struct {
+	mu sync.Mutex
+	m  map[chatKey]*chatLock
+}
+
+type chatKey struct{ session, chat string }
+
+type chatLock struct {
+	sync.RWMutex
+	users int // holders and waiters, counted under chatLocks.mu
+}
+
+// rlock takes a chat's lock shared and returns its unlock.
+func (l *chatLocks) rlock(sessionID, chatJID string) (unlock func()) {
+	k, c := l.acquire(sessionID, chatJID)
+	c.RLock()
+	return func() { c.RUnlock(); l.release(k, c) }
+}
+
+// lock takes a chat's lock exclusively and returns its unlock.
+func (l *chatLocks) lock(sessionID, chatJID string) (unlock func()) {
+	k, c := l.acquire(sessionID, chatJID)
+	c.Lock()
+	return func() { c.Unlock(); l.release(k, c) }
+}
+
+func (l *chatLocks) acquire(sessionID, chatJID string) (chatKey, *chatLock) {
+	k := chatKey{sessionID, chatJID}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.m == nil {
+		l.m = map[chatKey]*chatLock{}
+	}
+	c := l.m[k]
+	if c == nil {
+		c = &chatLock{}
+		l.m[k] = c
+	}
+	c.users++
+	return k, c
+}
+
+func (l *chatLocks) release(k chatKey, c *chatLock) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if c.users--; c.users == 0 {
+		delete(l.m, k)
 	}
 }

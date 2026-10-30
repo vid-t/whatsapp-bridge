@@ -4,8 +4,8 @@ The bridge exposes one MCP endpoint, `https://<host>/mcp` (streamable HTTP). An
 assistant connects once, lists six read-only tools, and from then on decides itself when
 to call them while it answers you. By default nothing reachable through MCP can send,
 change or delete a WhatsApp message. If the bridge runs with `BRIDGE_ALLOW_SEND=1`, a
-seventh tool, `send_message`, sends text messages to ticked chats
-([details](CONFIGURATION.md#sending-messages)).
+seventh tool, `send_message`, sends text messages to ticked chats, for assistants you
+allowed to send and keys created with sending ([details](CONFIGURATION.md#sending-messages)).
 
 There are two ways to connect:
 
@@ -32,6 +32,8 @@ example `bridge.example.com`.
    they are switched on, with an emailed link, or with the access code. Then the bridge
    shows which app is asking, where it will send you back to, and what it gets: read-only access to the chats this
    bridge stores, or, with sending on, reading and sending to the ticked chats. Click **Allow** (or **Deny**).
+   The bridge records what you allowed: an assistant approved read-only stays read-only when
+   sending is turned on later. To let it send, connect it again and click **Allow**.
 4. The browser returns to the assistant, which receives a token valid for one hour and
    renews it by itself. Access ends when you revoke it (section 7) or after 30 days
    without use.
@@ -179,7 +181,9 @@ Each person and each assistant gets its own key, so it can be revoked on its own
 event log shows who read what.
 
 **In the web UI:** open `https://<host>/keys`, click **New key**, give it a label such as
-`Claude - Anna`. The key is shown **once**. Copy it straight
+`Claude - Anna`. With sending on, tick **Let this key send messages to ticked chats** only
+for a key that must send; without it the key only reads, and sending cannot be added to a
+key later. The key is shown **once**. Copy it straight
 into the assistant's settings. The bridge stores only a hash of it, so nobody can show it
 to you again. If you lose it, revoke it and mint a new one.
 
@@ -192,7 +196,8 @@ curl -c jar.txt -X POST https://<host>/auth/login \
 
 curl -b jar.txt -X POST https://<host>/api/keys \
   -H 'Content-Type: application/json' -d '{"label":"Claude Code - Anna"}'
-# -> 201 {"id":"0a1b2c3d","key":"wb_live_0a1b2c3d_<48 hex characters>","label":"Claude Code - Anna","kind":"mcp","created_at":"..."}
+# -> 201 {"id":"0a1b2c3d","key":"wb_live_0a1b2c3d_<48 hex characters>","label":"Claude Code - Anna","kind":"mcp","created_at":"...","can_send":false}
+# add "can_send":true for a key that may send; refused (409) while sending is off
 
 curl -b jar.txt https://<host>/api/keys                    # list keys (no secrets)
 curl -b jar.txt -X DELETE https://<host>/api/keys/0a1b2c3d # revoke
@@ -221,7 +226,7 @@ session, never a key; log in as in section 6):
 curl -b jar.txt https://<host>/api/oauth/grants
 # -> [{"id":"oa_0d8efbf4838d04f2","client_name":"Claude Code",
 #      "client_id":"https://claude.ai/oauth/claude-code-client-metadata",
-#      "created_at":"...","last_used_at":"..."}]
+#      "created_at":"...","last_used_at":"...","can_send":false}]
 
 curl -b jar.txt -X DELETE https://<host>/api/oauth/grants/oa_0d8efbf4838d04f2   # -> 204
 ```
