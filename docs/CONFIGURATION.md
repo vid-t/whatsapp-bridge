@@ -39,9 +39,36 @@ that history. Link from the web UI if you want it.
 | `BRIDGE_LOG_LEVEL` | `-log-level` | `info` | `debug`, `info`, `warn`, `error`. Debug prints pairing payloads and protocol frames; do not use it on a shared machine |
 | `BRIDGE_INSECURE_BIND` | `-insecure-bind` | off | allow a non-loopback `-addr` without an access code. Private networks only |
 | `BRIDGE_INSECURE_PLAIN` | `-insecure-plain` | off | allow a non-loopback `-addr` without `BRIDGE_DB_KEY` (or with `BRIDGE_MAIL_DEV_FILE`). Testing only |
+| `BRIDGE_ALLOW_SEND` | `-allow-send` | off | set to `1` to let AI assistants send text messages to ticked chats (see [Sending messages](#sending-messages)) |
 
 Off loopback, `serve` refuses to start unless both `BRIDGE_ACCESS_CODE` and
 `BRIDGE_DB_KEY` are set.
+
+## Sending messages
+
+Sending is off by default, and the bridge then sends nothing to WhatsApp. Set
+`BRIDGE_ALLOW_SEND=1` and restart, and assistants get a seventh MCP tool, `send_message`.
+These rules apply:
+
+- **Ticked chats only.** A message can go only to a chat that is ticked when it is sent.
+  Unticking a chat waits for a send in progress, and after that nothing more can be sent
+  to it. Assistants and API keys cannot tick chats; only people signed in to the web UI can.
+- **Text only.** Plain text up to 4,096 characters, to people and groups. No files,
+  status updates, broadcast lists or channels. Groups where only admins may write refuse it.
+- **No accidental repeats.** The same text from the same assistant to the same chat is not
+  sent again within 2 minutes, so a retried call cannot deliver it twice. When WhatsApp does
+  not confirm a message in time, the assistant is told it may have arrived and not to resend it.
+- **Limits.** At most 10 messages per minute per assistant and 20 for the whole bridge.
+  WhatsApp restricts accounts that send in bulk.
+- **Stored and logged.** A sent message is stored with the chat, so `read_chat` shows it.
+  The account's activity log records each send (chat, message id, length and key), never
+  the text.
+- **Told everywhere.** The web UI, the sign-in page for assistants and `get_status` say
+  that sending is on.
+
+The setting applies to assistants that are already connected, and to API keys. They see
+`send_message` after they reconnect. First revoke any you do not want sending, under
+**Connect AI › Connected assistants** and **Keys** in the web UI.
 
 ## Sign-in for other people
 

@@ -61,6 +61,7 @@ type harnessOpts struct {
 	derive    bool   // leave PublicURL empty (issuer from Host)
 	cimdRoots *x509.CertPool
 	cimdAllow func(netip.Addr) bool
+	send      bool // the bridge has sending on
 }
 
 func newHarness(t *testing.T, ho harnessOpts) *harness {
@@ -100,7 +101,7 @@ func newHarness(t *testing.T, ho harnessOpts) *harness {
 	}
 	oauthMux := http.NewServeMux()
 	h.srv, err = Register(oauthMux, Deps{DB: db, Auth: h.auth, Log: log, Audit: audit}, Options{
-		PublicURL: public, now: h.now, cimdRoots: ho.cimdRoots, cimdAllow: ho.cimdAllow,
+		PublicURL: public, now: h.now, cimdRoots: ho.cimdRoots, cimdAllow: ho.cimdAllow, SendEnabled: ho.send,
 	})
 	if err != nil {
 		t.Fatal(err)

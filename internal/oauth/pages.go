@@ -106,6 +106,7 @@ type page struct {
 	RedirectHost string
 	Loopback     bool
 	Error        string
+	Send         bool // the app can send to ticked chats, not only read them
 
 	Heading string
 	Message string
@@ -138,6 +139,7 @@ func (s *Server) base(title string) page {
 
 func (s *Server) forClient(p page, req authzRequest, cl client) page {
 	p.Req = req
+	p.Send = s.send
 	p.ClientName = cl.Name
 	p.Document = cl.Document
 	p.ClientHost = cl.Host

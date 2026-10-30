@@ -30,11 +30,14 @@ func AppendAudit(ctx context.Context, db *sql.DB, typ, detail string) error {
 // SetChatTicked turns storage for a chat on or off. Turning it on stores new
 // messages from now on, plus the messages held in memory for the chat while
 // its account's window after linking is open. Turning it off deletes the
-// chat's stored messages.
+// chat's stored messages and, when sending is on, stops sends to the chat: it
+// waits for a send in progress, and none can start after it.
 func (m *Manager) SetChatTicked(ctx context.Context, sessionID, chatJID string, ticked bool) (Chat, error) {
 	if _, err := m.get(sessionID); err != nil {
 		return Chat{}, err
 	}
+	m.tickMu.Lock()
+	defer m.tickMu.Unlock()
 	chats, err := m.queryChats(ctx, `WHERE session_id = ? AND jid = ?`, sessionID, chatJID)
 	if err != nil {
 		return Chat{}, err

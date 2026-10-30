@@ -164,13 +164,22 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+func TestMeSaysWhetherSendingIsOn(t *testing.T) {
+	h, _ := gatedHandler(t, Options{Auth: newAuthStore(t, ""), SendEnabled: true})
+	var me map[string]any
+	_ = json.Unmarshal(call(h, "GET", "/api/me", "", nil).Body.Bytes(), &me)
+	if me["send_enabled"] != true {
+		t.Fatalf("me with sending on: %v", me)
+	}
+}
+
 func TestOpenMode(t *testing.T) {
 	st := newAuthStore(t, "")
 	h, _ := gatedHandler(t, Options{Auth: st})
 	w := call(h, "GET", "/api/me", "", nil)
 	var me map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &me)
-	if me["auth_required"] != false || me["authenticated"] != true || me["principal"] != "open" {
+	if me["auth_required"] != false || me["authenticated"] != true || me["principal"] != "open" || me["send_enabled"] != false {
 		t.Fatalf("open mode me: %v", me)
 	}
 	if w := call(h, "POST", "/auth/login", `{"code":"x"}`, nil); w.Code != http.StatusConflict {

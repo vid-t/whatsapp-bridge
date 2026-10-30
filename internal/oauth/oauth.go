@@ -10,7 +10,8 @@
 //     https URL as its client_id (Client ID Metadata Document, CIMD).
 //  3. The user's browser opens /oauth/authorize, signs in (access code,
 //     email link, Google or Microsoft) if it has no bridge session, and
-//     approves read-only access on a consent page.
+//     approves access on a consent page (read-only, or read and send when
+//     the bridge has sending on).
 //  4. The client exchanges the single-use code (PKCE S256 only) at
 //     /oauth/token for an opaque access token (wb_at_, 1 hour) and a rotating
 //     refresh token (wb_rt_, 30 days), and calls /mcp with the access token.
@@ -57,7 +58,8 @@ const (
 	// GrantsPath is mounted on the web layer's mux through RegisterAPI.
 	GrantsPath = "/api/oauth/grants"
 
-	// Scope is the only scope: read-only use of the MCP tools.
+	// Scope is the only scope: use of the MCP tools (read-only unless the
+	// bridge has sending on).
 	Scope = "mcp"
 	// ResourcePath is the protected resource, relative to the issuer.
 	ResourcePath = "/mcp"
@@ -160,6 +162,9 @@ type Options struct {
 	// (internal/sso) a "Continue with ..." link. Each returns to the pending
 	// authorization request after sign-in.
 	SignInProviders []string
+	// SendEnabled says on the consent page that the assistant will be able
+	// to send messages to ticked chats, not only read them.
+	SendEnabled bool
 
 	// Tests.
 	now       func() time.Time
@@ -181,6 +186,7 @@ type Server struct {
 	pages     *template.Template
 	css       asset
 	providers []string
+	send      bool // the consent page says the app can send to ticked chats
 	lastPrune atomic.Int64
 }
 
@@ -241,6 +247,7 @@ func newServer(deps Deps, opts Options) (*Server, error) {
 		pages:     pages,
 		css:       css,
 		providers: opts.SignInProviders,
+		send:      opts.SendEnabled,
 	}
 	allow := opts.cimdAllow
 	if allow == nil {

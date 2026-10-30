@@ -134,6 +134,9 @@ const EVENT: Record<string, string> = {
   "chats.ticked": "Chat ticked",
   "chats.unticked": "Chat unticked",
   "mcp.tool": "AI assistant read",
+  "message.sent": "Message sent",
+  "message.failed": "Message not sent",
+  "message.unconfirmed": "Message not confirmed by WhatsApp",
   "oauth.consent_granted": "AI assistant connected",
   "oauth.consent_denied": "AI assistant refused",
   "oauth.revoke": "AI assistant revoked",
@@ -153,11 +156,12 @@ const TOOL: Record<string, string> = {
   get_status: "checked the status",
   list_chats: "listed the chats",
   get_document: "opened a document",
+  send_message: "sent a message",
 };
 
 /** A log line in plain words: what happened, then the detail. */
 export function describeEvent(type: string, detail: string) {
-  const what = EVENT[type] ?? type.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
+  let what = EVENT[type] ?? type.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
   // "history sync: 9 chats", or key=value pairs whose values may hold spaces
   // ("device=My bridge"): a value runs to the next key= or the end.
   const first = detail.search(/(^|\s)\w+=/);
@@ -168,7 +172,9 @@ export function describeEvent(type: string, detail: string) {
   ) as Record<string, string>;
   const parts: string[] = [];
   if (kv.device) parts.push(`as ${kv.device}`);
-  if (kv.tool) parts.push(TOOL[kv.tool] ?? kv.tool.replace(/_/g, " "));
+  if (type === "mcp.tool" && kv.tool === "send_message") what = "AI assistant sent a message";
+  else if (kv.tool) parts.push(TOOL[kv.tool] ?? kv.tool.replace(/_/g, " "));
+  if (kv.chars) parts.push(`${kv.chars} characters`);
   if (kv.rows) parts.push(`${kv.rows} ${kv.rows === "1" ? "row" : "rows"}`);
   if (kv.client) parts.push(kv.client);
   if (kv.email) parts.push(kv.email);

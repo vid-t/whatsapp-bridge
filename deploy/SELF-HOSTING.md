@@ -16,7 +16,7 @@ UI, and `https://<your domain>/mcp` for your AI assistant.
 - **Ports 80 and 443** reachable from the internet. Caddy needs 80 for the certificate
   check and serves the bridge on 443.
 - **A phone with WhatsApp.** The bridge becomes one of its linked devices. It reads; it
-  never sends.
+  sends nothing unless you set `BRIDGE_ALLOW_SEND=1`.
 
 ## Path A: one-click VPS with cloud-init
 

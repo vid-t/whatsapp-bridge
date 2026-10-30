@@ -80,6 +80,9 @@ type Options struct {
 	// code, in display order ("email", "google", "microsoft"); /api/me lists
 	// them after "code".
 	SignInProviders []string
+	// SendEnabled tells the UI, through /api/me, that assistants may send
+	// messages to ticked chats, so it can say so where chats are ticked.
+	SendEnabled bool
 }
 
 type server struct {
@@ -94,6 +97,7 @@ type server struct {
 	version   string
 	auditFn   func(typ, detail string)
 	providers []string
+	send      bool
 
 	stepMu sync.Mutex
 	steps  map[string]cachedStep // latest screen step per pairing session
@@ -129,6 +133,7 @@ func newServer(mgr manager, log *slog.Logger, opts Options) *server {
 		version:   opts.Version,
 		auditFn:   opts.Audit,
 		providers: opts.SignInProviders,
+		send:      opts.SendEnabled,
 	}
 	s.routes()
 	if opts.ExtraRoutes != nil {

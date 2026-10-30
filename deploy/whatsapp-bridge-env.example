@@ -45,6 +45,10 @@ BRIDGE_LOG_LEVEL=info
 # Email domains admitted without approval, comma-separated.
 #BRIDGE_ALLOWED_DOMAINS=example.com
 
+# Optional: let AI assistants send text messages to ticked chats (send_message).
+# Off by default. See docs/CONFIGURATION.md, "Sending messages".
+#BRIDGE_ALLOW_SEND=1
+
 # Secrets, filled from `docker run --rm ghcr.io/vid-t/whatsapp-bridge keygen`.
 # Step 2 appends its two lines below; the server refuses to start without them:
 #   BRIDGE_DB_KEY=<64 hex characters>

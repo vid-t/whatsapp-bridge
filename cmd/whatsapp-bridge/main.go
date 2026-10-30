@@ -1,5 +1,6 @@
-// Command whatsapp-bridge is a read-only WhatsApp linked device that
-// shares the chats you tick with AI assistants over MCP.
+// Command whatsapp-bridge is a WhatsApp linked device that shares the chats
+// you tick with AI assistants over MCP. It is read-only unless
+// BRIDGE_ALLOW_SEND is set; then assistants may also send text to ticked chats.
 //
 //	whatsapp-bridge serve              start the HTTP server (default)
 //	whatsapp-bridge pair               pair a new device from the terminal via QR
@@ -39,6 +40,8 @@
 //	BRIDGE_SMTP_PASSWORD, BRIDGE_MAIL_FROM   mail for email sign-in ("email" in /api/me)
 //	BRIDGE_APPROVERS    comma-separated addresses that receive access requests
 //	BRIDGE_MAIL_DEV_FILE development only: append mails to this file instead of sending
+//	BRIDGE_ALLOW_SEND   set to 1 to let AI assistants send text messages to ticked chats
+//	                    (send_message); off by default
 package main
 
 import (
@@ -111,6 +114,7 @@ func main() {
 	accessCode := fs.String("access-code", os.Getenv("BRIDGE_ACCESS_CODE"), "access code that gates the UI (unset = open mode)")
 	name := fs.String("name", envOr("BRIDGE_NAME", "whatsapp-bridge"), "name shown in the web UI, emails and to MCP clients")
 	publicURL := fs.String("public-url", os.Getenv("BRIDGE_PUBLIC_URL"), "external base URL used in MCP metadata and as the OAuth issuer")
+	allowSend := fs.Bool("allow-send", os.Getenv("BRIDGE_ALLOW_SEND") == "1", "let AI assistants send text messages to ticked chats")
 	_ = fs.Parse(args)
 
 	if cmd == "keygen" {
@@ -143,7 +147,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	mgr, err := wa.NewManager(ctx, db, logger, wa.Options{DeviceName: *deviceName})
+	// Only serve sends: pair, pair-code and sessions never do.
+	mgr, err := wa.NewManager(ctx, db, logger, wa.Options{DeviceName: *deviceName, AllowSend: cmd == "serve" && *allowSend})
 	if err != nil {
 		fatal(logger, "init manager", err)
 	}
@@ -164,6 +169,11 @@ func main() {
 		}
 		if *accessCode == "" {
 			logger.Warn("open mode: no access code; anyone who can reach this address can use the UI")
+		}
+		if *allowSend {
+			logger.Warn("sending is on (BRIDGE_ALLOW_SEND): AI assistants can send text messages to ticked chats")
+		} else {
+			logger.Info("read-only: sending is off; set BRIDGE_ALLOW_SEND=1 to let assistants send to ticked chats")
 		}
 		authStore, err := auth.New(ctx, db, auth.Options{AccessCode: *accessCode, Name: *name})
 		if err != nil {
@@ -202,6 +212,7 @@ func main() {
 			db:           db,
 			members:      memSrv,
 			audit:        audit,
+			allowSend:    *allowSend,
 		}, mgr, logger)
 	case "pair":
 		// Deliberately no mgr.Start(): connecting the other stored devices
@@ -255,6 +266,7 @@ type serveConfig struct {
 	db           *sql.DB
 	members      *members.Server
 	audit        func(typ, detail string)
+	allowSend    bool // assistants may send text to ticked chats
 }
 
 // hostAllowed mirrors the web layer's allowlist for routes mounted outside it:
@@ -380,7 +392,7 @@ func runServe(ctx context.Context, addr string, cfg serveConfig, mgr *wa.Manager
 	var verifier auth.Verifier = cfg.auth
 	oauthMux := http.NewServeMux()
 	oauthSrv, err := oauth.Register(oauthMux, oauth.Deps{DB: cfg.db, Auth: cfg.auth, Log: logger, Audit: audit},
-		oauth.Options{PublicURL: cfg.publicURL, SignInProviders: providers})
+		oauth.Options{PublicURL: cfg.publicURL, SignInProviders: providers, SendEnabled: cfg.allowSend})
 	if err != nil {
 		logger.Error("OAuth disabled; assistants can still connect with bearer keys", "err", err)
 	} else {
@@ -393,7 +405,7 @@ func runServe(ctx context.Context, addr string, cfg serveConfig, mgr *wa.Manager
 
 	// MCP for AI assistants, behind the same Host allowlist.
 	mcpMux := http.NewServeMux()
-	mcp.Register(mcpMux, mgr, verifier, logger, mcp.Options{
+	mcpOpts := mcp.Options{
 		Name:      cfg.name,
 		Version:   cfg.version,
 		PublicURL: cfg.publicURL,
@@ -401,7 +413,11 @@ func runServe(ctx context.Context, addr string, cfg serveConfig, mgr *wa.Manager
 		Audit: func(e mcp.AuditEvent) {
 			audit("mcp.tool", e.Detail())
 		},
-	})
+	}
+	if cfg.allowSend {
+		mcpOpts.Sender = mgr // adds send_message; nil keeps the endpoint read-only
+	}
+	mcp.Register(mcpMux, mgr, verifier, logger, mcpOpts)
 	for _, p := range []string{"/mcp", "/mcp/", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/"} {
 		mux.Handle(p, guardHost(cfg.allowedHosts, mcpMux))
 	}
@@ -412,6 +428,7 @@ func runServe(ctx context.Context, addr string, cfg serveConfig, mgr *wa.Manager
 		Version:         cfg.version,
 		Audit:           audit,
 		SignInProviders: providers,
+		SendEnabled:     cfg.allowSend,
 		ExtraRoutes: func(m *http.ServeMux) {
 			for _, register := range extraRoutes {
 				register(m)

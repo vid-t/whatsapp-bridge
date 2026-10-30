@@ -94,6 +94,7 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		"name":          name,
 		"version":       s.version,
 		"providers":     providers,
+		"send_enabled":  s.send,
 	}
 	if p.User != nil {
 		out["user"] = p.User

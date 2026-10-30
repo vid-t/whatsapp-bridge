@@ -1,8 +1,10 @@
-// Package mcp serves the bridge's read-only Model Context Protocol endpoint at
-// /mcp (streamable HTTP). Assistants such as Claude and Codex connect with a
+// Package mcp serves the bridge's Model Context Protocol endpoint at /mcp
+// (streamable HTTP). Assistants such as Claude and Codex connect with a
 // bearer key of kind "mcp", or an OAuth access token when the verifier accepts
 // them (internal/oauth), and get six read tools over the ticked WhatsApp
-// chats. Nothing here can send, change or delete anything.
+// chats. When the operator turns sending on (Options.Sender), a seventh tool,
+// send_message, sends text to ticked chats. Nothing here can change or delete
+// anything.
 //
 // Layers, outermost first:
 //
@@ -66,6 +68,10 @@ func visible(c wa.Chat) bool { return c.Ticked }
 type Limits struct {
 	PerKey  int // tool calls per key per minute (default 60)
 	Overall int // tool calls across all keys per minute (default 600)
+	// Sends are capped further: WhatsApp restricts accounts that send in
+	// bulk.
+	SendPerKey  int // messages sent per key per minute (default 10)
+	SendOverall int // messages sent across all keys per minute (default 20)
 }
 
 // Options configures the MCP endpoint.
@@ -88,6 +94,9 @@ type Options struct {
 	// Media, when set, supplies file contents for get_document. This build has
 	// no media store; leave nil.
 	Media MediaSource
+	// Sender, when set, adds the send_message tool. Leave it nil for a
+	// read-only bridge.
+	Sender Sender
 
 	now func() time.Time // tests
 }
@@ -121,12 +130,15 @@ func (e AuditEvent) Detail() string {
 // server holds everything shared by the HTTP layer and the tools.
 type server struct {
 	store    Store
+	sender   Sender // nil: read-only
 	verifier auth.Verifier
 	log      *slog.Logger
 	opts     Options
 	now      func() time.Time
-	tools    *limiter // tool calls
-	requests *limiter // raw HTTP requests
+	tools    *limiter     // tool calls
+	requests *limiter     // raw HTTP requests
+	sends    *limiter     // messages sent
+	recent   *recentSends // repeated sends
 	handler  http.Handler
 }
 
@@ -152,6 +164,12 @@ func newServer(store Store, verifier auth.Verifier, log *slog.Logger, opts Optio
 	if opts.Limits.Overall <= 0 {
 		opts.Limits.Overall = 600
 	}
+	if opts.Limits.SendPerKey <= 0 {
+		opts.Limits.SendPerKey = 10
+	}
+	if opts.Limits.SendOverall <= 0 {
+		opts.Limits.SendOverall = 20
+	}
 	if opts.Version == "" {
 		opts.Version = "dev"
 	}
@@ -162,12 +180,15 @@ func newServer(store Store, verifier auth.Verifier, log *slog.Logger, opts Optio
 	}
 	s := &server{
 		store:    store,
+		sender:   opts.Sender,
 		verifier: verifier,
 		log:      log.With("module", "mcp"),
 		opts:     opts,
 		now:      now,
 		tools:    newLimiter(opts.Limits.PerKey, opts.Limits.Overall, window, now),
 		requests: newLimiter(opts.Limits.PerKey*httpFactor, opts.Limits.Overall*httpFactor, window, now),
+		sends:    newLimiter(opts.Limits.SendPerKey, opts.Limits.SendOverall, window, now),
+		recent:   newRecentSends(repeatWindow, now),
 	}
 	srv := s.mcpServer()
 	s.handler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
@@ -196,8 +217,12 @@ func (s *server) nameSuffix() string {
 
 func (s *server) mcpServer() *mcp.Server {
 	title := "whatsapp-bridge" + s.nameSuffix()
+	ins := instructions
+	if s.sender != nil {
+		ins = instructionsSend
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "whatsapp-bridge", Title: title, Version: s.opts.Version}, &mcp.ServerOptions{
-		Instructions: instructions,
+		Instructions: ins,
 		Logger:       s.log,
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
