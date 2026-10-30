@@ -42,7 +42,10 @@ export interface Chat {
   is_group: boolean;
   last_message_at?: string;
   message_count: number;
-  /** Ticked chats are stored and reach AI assistants. Chats start unticked. */
+  /**
+   * Ticked chats are stored and reach AI assistants, which may also send to
+   * them when the bridge has sending on. Chats start unticked.
+   */
   ticked: boolean;
 }
 
@@ -118,6 +121,8 @@ export interface Me {
   providers?: string[];
   /** Present for a member session (email, Google or Microsoft); absent for an access-code session. */
   user?: { email: string; name?: string; provider?: string };
+  /** AI assistants may send text messages to ticked chats (BRIDGE_ALLOW_SEND). */
+  send_enabled?: boolean;
 }
 
 export interface KeyInfo {
@@ -126,6 +131,8 @@ export interface KeyInfo {
   kind?: string;
   created_at: string;
   last_used_at?: string | null;
+  /** Created with sending allowed. Without it the key only reads, even when the bridge has sending on. */
+  can_send?: boolean;
 }
 
 export interface NewKey extends KeyInfo {
@@ -140,6 +147,8 @@ export interface Grant {
   client_id: string;
   created_at: string;
   last_used_at?: string | null;
+  /** Approved on a consent page that allowed sending. Without it the assistant only reads. */
+  can_send?: boolean;
 }
 
 export interface Member {

@@ -86,6 +86,58 @@ func TestKeys(t *testing.T) {
 	}
 }
 
+func TestKeyConsentToSend(t *testing.T) {
+	s := newStore(t, "")
+	ctx := context.Background()
+	ro, roSecret, err := s.CreateKey(ctx, "reader", KindMCP)
+	if err != nil || ro.CanSend {
+		t.Fatalf("a plain key must be read-only: %+v %v", ro, err)
+	}
+	sk, sendSecret, err := s.CreateKeyWith(ctx, "sender", KindMCP, KeyOptions{CanSend: true})
+	if err != nil || !sk.CanSend {
+		t.Fatalf("a key created with sending: %+v %v", sk, err)
+	}
+	if k, err := s.VerifyKey(ctx, roSecret); err != nil || k.CanSend || k.OAuth {
+		t.Fatalf("verify read-only key: %+v %v", k, err)
+	}
+	if k, err := s.VerifyKey(ctx, sendSecret); err != nil || !k.CanSend {
+		t.Fatalf("verify send key: %+v %v", k, err)
+	}
+	list, _ := s.ListKeys(ctx)
+	if len(list) != 2 || list[0].CanSend || !list[1].CanSend {
+		t.Fatalf("list: %+v", list)
+	}
+}
+
+func TestOldKeysStayReadOnly(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "old.db"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	// A key table from before the consent to send existed.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE bridge_api_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
+		hash BLOB NOT NULL, created_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO bridge_api_keys (id, label, kind, hash, created_at) VALUES ('0ld0ld00', 'old', 'mcp', x'00', ?)`,
+		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(ctx, db, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListKeys(ctx)
+	if err != nil || len(list) != 1 || list[0].CanSend {
+		t.Fatalf("an old key must not gain sending: %+v %v", list, err)
+	}
+	if _, err := New(ctx, db, Options{}); err != nil {
+		t.Fatalf("migrating twice: %v", err)
+	}
+}
+
 func TestResolve(t *testing.T) {
 	open := newStore(t, "")
 	r := httptest.NewRequest("GET", "/api/sessions", nil)

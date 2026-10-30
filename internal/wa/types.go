@@ -1,7 +1,8 @@
 // Package wa owns the WhatsApp linked-device sessions (whatsmeow clients),
 // their lifecycle, pairing flows, and a small persistence layer for chats and
-// messages. It is read-only by construction: nothing in this package sends
-// messages, presence or read receipts.
+// messages. It never sends presence or read receipts. The one way it sends
+// anything is SendText (send.go): plain text to a ticked chat, and only when
+// Options.AllowSend is set.
 package wa
 
 import (

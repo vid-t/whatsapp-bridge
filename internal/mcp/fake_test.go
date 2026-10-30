@@ -242,10 +242,12 @@ var (
 	testBase = time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC)
 )
 
+// testVerifier's mcp keys were created with sending allowed; send tests
+// for read-only keys and grants use their own verifier.
 func testVerifier() fakeVerifier {
 	return fakeVerifier{
-		mcpKey:   {ID: "aaaaaaaa", Label: "Claude", Kind: auth.KindMCP},
-		mcpKey2:  {ID: "bbbbbbbb", Label: "Codex", Kind: auth.KindMCP},
+		mcpKey:   {ID: "aaaaaaaa", Label: "Claude", Kind: auth.KindMCP, CanSend: true},
+		mcpKey2:  {ID: "bbbbbbbb", Label: "Codex", Kind: auth.KindMCP, CanSend: true},
 		otherKey: {ID: "cccccccc", Label: "Other", Kind: auth.KeyKind("other")},
 	}
 }

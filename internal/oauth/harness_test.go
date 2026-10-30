@@ -61,6 +61,8 @@ type harnessOpts struct {
 	derive    bool   // leave PublicURL empty (issuer from Host)
 	cimdRoots *x509.CertPool
 	cimdAllow func(netip.Addr) bool
+	send      bool // the consent page offers sending (the bridge had sending on at approval)
+	mcpSend   bool // the MCP endpoint offers send_message (the bridge has sending on now)
 }
 
 func newHarness(t *testing.T, ho harnessOpts) *harness {
@@ -100,7 +102,7 @@ func newHarness(t *testing.T, ho harnessOpts) *harness {
 	}
 	oauthMux := http.NewServeMux()
 	h.srv, err = Register(oauthMux, Deps{DB: db, Auth: h.auth, Log: log, Audit: audit}, Options{
-		PublicURL: public, now: h.now, cimdRoots: ho.cimdRoots, cimdAllow: ho.cimdAllow,
+		PublicURL: public, now: h.now, cimdRoots: ho.cimdRoots, cimdAllow: ho.cimdAllow, SendEnabled: ho.send,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,14 +112,18 @@ func newHarness(t *testing.T, ho harnessOpts) *harness {
 		mux.Handle(p, oauthMux)
 	}
 	mcpMux := http.NewServeMux()
-	bmcp.Register(mcpMux, mgr, h.srv.Verifier(h.auth), log, bmcp.Options{
+	mcpOpts := bmcp.Options{
 		Name: testName, PublicURL: public, OAuth: true,
 		Audit: func(e bmcp.AuditEvent) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			h.tools = append(h.tools, e)
 		},
-	})
+	}
+	if ho.mcpSend {
+		mcpOpts.Sender = mgr
+	}
+	bmcp.Register(mcpMux, mgr, h.srv.Verifier(h.auth), log, mcpOpts)
 	for _, p := range []string{"/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/"} {
 		mux.Handle(p, mcpMux)
 	}

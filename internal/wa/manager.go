@@ -29,6 +29,9 @@ type Options struct {
 	// MaxConcurrentPairings caps sessions in the pairing state (default 3).
 	// Every pairing opens a WhatsApp socket from this server's address.
 	MaxConcurrentPairings int
+	// AllowSend lets SendText send text messages to ticked chats. Off, the
+	// bridge sends nothing (see send.go).
+	AllowSend bool
 }
 
 var (
@@ -106,6 +109,13 @@ type Manager struct {
 	fts     bool // full-text index available
 
 	hold *holdBuffer // messages for unticked chats after linking, in memory only
+
+	// tickLocks orders sends and tick changes per chat: SendText holds a
+	// chat's lock shared from its tick check until the message is stored,
+	// SetChatTicked holds it exclusively, so an untick never overlaps a send
+	// to that chat. Other chats are not held up.
+	tickLocks chatLocks
+	send      transport // sendViaClient; tests replace it
 }
 
 // NewManager prepares the whatsmeow store (running its migrations), creates
@@ -130,6 +140,7 @@ func NewManager(ctx context.Context, db *sql.DB, log *slog.Logger, opts Options)
 		cancel:   cancel,
 		hold:     newHoldBuffer(),
 	}
+	m.send = m.sendViaClient
 	m.container = sqlstore.NewWithDB(db, "sqlite3", newWALog(log, "sqlstore"))
 	if err := m.container.Upgrade(ctx); err != nil {
 		cancel()

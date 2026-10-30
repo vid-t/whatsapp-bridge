@@ -183,6 +183,7 @@ function fresh(opts) {
     grants: opts.grants === null ? null : [...(opts.grants ?? [])], // null: the endpoint answers 404
     members: opts.members === null ? null : [...(opts.members ?? [])],
     allowedDomains: opts.allowedDomains ?? [],
+    send: !!opts.send, // the bridge has sending on: /api/me says so and keys may be created with can_send
     approvers: opts.approvers ?? ["owner@example.com"],
     name: opts.name ?? NAME,
     cookies: {}, // the link and approve cookies: cookie value -> token
@@ -213,7 +214,7 @@ function fresh(opts) {
  * reset(opts) starts a new scenario on the same server. Options: gated,
  * code, authed, providers, user, oauth, grants, members, allowedDomains,
  * sessions ("linked" | "linked-old"), work (a second, offline account), keys, failSessions, loginLimit,
- * emailLimit, pairLimited, autoGrantAfterMs.
+ * emailLimit, pairLimited, autoGrantAfterMs, send (the bridge has sending on).
  */
 export async function createMock(opts = {}) {
   const S = { clients: new Set() };
@@ -313,10 +314,17 @@ function addLinked(S, id, createdMinsAgo) {
   S.sessions.push(s);
   S.chats[id] = chatsFor(id);
   S.messages[id] = messagesFor(id);
+  // Details as the bridge writes them. The bridge logs mcp.tool, oauth.* and
+  // auth.* bridge-wide (session_id ""), so its account page does not list
+  // them; they sit under the account here so the preview shows how they read.
+  const family = CHATS[0].jid;
   S.logs = [
-    { seq: 9, time: iso(30), session_id: id, type: "mcp.tool", detail: "key=oa_0d8efbf4838d04f2 tool=search_messages rows=6" },
-    { seq: 8, time: iso(31), session_id: id, type: "mcp.tool", detail: "key=oa_0d8efbf4838d04f2 tool=read_chat rows=40" },
-    { seq: 7, time: iso(95), session_id: id, type: "chats.unticked", detail: "Taylor Brooks" },
+    { seq: 12, time: iso(12), session_id: id, type: "mcp.tool", detail: `key=oa_0d8efbf4838d04f2 tool=send_message args=4be1d07c9a3f5e28 rows=0 dur=2ms chats=${family} err=duplicate` },
+    { seq: 11, time: iso(13), session_id: id, type: "mcp.tool", detail: `key=oa_0d8efbf4838d04f2 tool=send_message args=4be1d07c9a3f5e28 rows=1 dur=840ms chats=${family}` },
+    { seq: 10, time: iso(13), session_id: id, type: "message.sent", detail: `chat=${family} id=3EB0C431D5A7F2B9E104 chars=21 key=oa_0d8efbf4838d04f2` },
+    { seq: 9, time: iso(30), session_id: id, type: "mcp.tool", detail: `key=oa_0d8efbf4838d04f2 tool=search_messages args=91c07d2e5a4b3f18 rows=6 dur=18ms chats=${CHATS[1].jid},${family}` },
+    { seq: 8, time: iso(31), session_id: id, type: "mcp.tool", detail: `key=oa_0d8efbf4838d04f2 tool=read_chat args=e2a95b0c7d14f683 rows=40 dur=9ms chats=${CHATS[1].jid}` },
+    { seq: 7, time: iso(95), session_id: id, type: "chat.ticked", detail: "15550100008@s.whatsapp.net=false" },
     { seq: 6, time: iso(120), session_id: id, type: "oauth.consent_granted", detail: "client=Claude" },
     { seq: 5, time: iso(121), session_id: id, type: "auth.login", detail: "via=code" },
     { seq: 4, time: iso(240), session_id: id, type: "state.connected", detail: "" },
@@ -456,6 +464,7 @@ async function handle(S, req, res) {
       name: S.name, version: "mock-bridge", providers: S.providers,
     };
     if (S.user && S.authed) me.user = S.user;
+    if (!S.gated || S.authed) me.send_enabled = !!S.send;
     return send(res, 200, me);
   }
 
@@ -700,7 +709,8 @@ async function handle(S, req, res) {
     if (m === "GET") return send(res, 200, S.keys);
     if (m === "POST") {
       if (body.kind !== undefined && body.kind !== "mcp") return send(res, 400, { error: 'kind must be "mcp"' });
-      const k = { id: randomBytes(4).toString("hex"), label: body.label || "My assistant", kind: "mcp", created_at: new Date().toISOString(), last_used_at: null };
+      if (body.can_send && !S.send) return send(res, 409, { error: "sending is off on this bridge" });
+      const k = { id: randomBytes(4).toString("hex"), label: body.label || "My assistant", kind: "mcp", can_send: !!body.can_send, created_at: new Date().toISOString(), last_used_at: null };
       S.keys.push(k);
       return send(res, 201, { ...k, key: `wb_live_${k.id}_${randomBytes(24).toString("hex")}` });
     }

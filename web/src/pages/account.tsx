@@ -1,5 +1,5 @@
 import { EyeIcon, HourglassIcon, MessageSquareTextIcon, SearchIcon, SearchXIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
 import { useConfirm } from "@/components/confirm";
 import { Empty, LoadingRows } from "@/components/feedback";
@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Segmented, SegmentedItem } from "@/components/ui/toggle-group";
 import { ApiError, api, errorText } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { useLater } from "@/lib/debounce";
 import { useBridgeEvents } from "@/lib/events";
 import { ago, describeEvent, fmtDate, fmtPhone, fmtShort, fmtTime, platformName, plural, sessionTitle, stateNote } from "@/lib/format";
@@ -351,7 +352,10 @@ function MessagesSheet({
 
 /* --------------------------------------------------------------- activity */
 
-function eventTone(type: string) {
+/** The dot's colour. A refused or failed AI assistant action is never "live". */
+function eventTone(type: string, failed: boolean) {
+  if (failed) return "warn";
+  if (type === "message.sent") return "live";
   if (type === "state.connected" || type === "pair.success" || type === "chats.sync") return "ok";
   if (type.startsWith("mcp.") || type.startsWith("oauth.")) return "live";
   if (type === "state.banned" || type === "pair.error" || type === "auth.login_failed") return "bad";
@@ -359,12 +363,14 @@ function eventTone(type: string) {
   return "off";
 }
 
-function Activity({ logs }: { logs: LogRow[] }) {
+function Activity({ logs, chats }: { logs: LogRow[]; chats: Chat[] | null }) {
+  // Log lines name chats by JID; show this account's chats by name.
+  const names = useMemo(() => new Map((chats ?? []).map((c) => [c.jid, chatName(c)])), [chats]);
   return (
     <ol className="divide-y overflow-hidden rounded-xl border bg-card shadow-xs">
       {logs.map((l, i) => {
-        const e = describeEvent(l.type, l.detail);
-        const tone = eventTone(l.type);
+        const e = describeEvent(l.type, l.detail, (jid) => names.get(jid));
+        const tone = eventTone(l.type, e.failed);
         return (
           <li
             key={l.key}
@@ -402,6 +408,7 @@ function Activity({ logs }: { logs: LogRow[] }) {
 
 export function AccountPage({ id }: { id: string }) {
   const wide = useWide();
+  const { sendEnabled } = useAuth();
   const { notify, clearError } = useNotice();
   const confirm = useConfirm();
   const later = useLater();
@@ -519,7 +526,7 @@ export function AccountPage({ id }: { id: string }) {
           <>
             <p>
               This deletes <strong className="font-medium text-foreground">{plural(n, "stored message")}</strong> from the bridge and stops
-              storing new ones. AI assistants can no longer read them.
+              storing new ones. AI assistants can no longer read them{sendEnabled ? " or send to these chats" : ""}.
             </p>
             <p>Ticking a chat again stores new messages from then on. Deleted messages do not come back.</p>
           </>
@@ -581,8 +588,12 @@ export function AccountPage({ id }: { id: string }) {
         lead={
           <>
             <strong className="font-medium text-foreground">Only ticked chats are shared.</strong> The bridge stores their messages and AI
-            assistants can read them. Chats start unticked. For those, the bridge keeps only the name and last activity, so you can find
-            them here, and no assistant can see them.
+            assistants can read them.{" "}
+            {sendEnabled && (
+              <strong className="font-medium text-foreground">Sending is on: assistants you allowed to send can also send messages to ticked chats. </strong>
+            )}
+            Chats start unticked. For those, the bridge keeps only the name and last activity, so you can find them here, and no assistant
+            can see them{sendEnabled ? " or send to them" : ""}.
           </>
         }
         aside={
@@ -697,7 +708,7 @@ export function AccountPage({ id }: { id: string }) {
         ) : logs.length === 0 ? (
           <Empty title="No activity yet" />
         ) : (
-          <Activity logs={logs} />
+          <Activity logs={logs} chats={chats} />
         )}
       </Section>
     </Page>

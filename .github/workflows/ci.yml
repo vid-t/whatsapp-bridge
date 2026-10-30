@@ -31,6 +31,9 @@ jobs:
           npm --prefix web ci --no-audit --no-fund
           npm --prefix web run build
 
+      - name: Test the web UI
+        run: npm --prefix web test
+
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

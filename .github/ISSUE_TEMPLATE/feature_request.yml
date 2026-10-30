@@ -5,8 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        whatsapp-bridge is read-only: it never sends anything to WhatsApp. If your idea needs
-        sending, presence or read receipts, start a discussion first.
+        whatsapp-bridge is read-only by default. Sending is opt-in, and limited to text to
+        ticked chats. If your idea needs more sending, presence or read receipts, start a
+        discussion first.
   - type: textarea
     id: problem
     attributes:

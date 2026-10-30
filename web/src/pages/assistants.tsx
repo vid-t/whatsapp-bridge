@@ -1,6 +1,7 @@
 import { BotIcon, GlobeLockIcon, KeyRoundIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/avatar";
+import { CanSendBadge } from "@/components/can-send";
 import { useConfirm } from "@/components/confirm";
 import { CodeBlock, CopyField } from "@/components/copy";
 import { Empty, LoadingRows, RetryLine } from "@/components/feedback";
@@ -11,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notPublic, useAccess } from "@/lib/access";
 import { ApiError, api, errorText } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { ago, fmtDate } from "@/lib/format";
 import { stagger } from "@/lib/motion";
 import { useNotice } from "@/lib/notice";
@@ -118,6 +120,7 @@ function Setup({ url, oauth }: { url: string; oauth: boolean }) {
 export function AssistantsPage() {
   useTitle("Connect AI");
   const access = useAccess();
+  const { sendEnabled } = useAuth();
   const confirm = useConfirm();
   const { notify } = useNotice();
   const grants = useOptionalList<Grant>("/oauth/grants");
@@ -153,7 +156,11 @@ export function AssistantsPage() {
     <Page>
       <PageHeader
         title="Connect AI"
-        lead="AI assistants connect to the bridge over MCP. They can read ticked chats only, and only when you ask them something."
+        lead={
+          sendEnabled
+            ? "AI assistants connect to the bridge over MCP. They read ticked chats only when you ask them something. Those you allowed to send can also send messages to ticked chats."
+            : "AI assistants connect to the bridge over MCP. They can read ticked chats only, and only when you ask them something."
+        }
       />
 
       <Section title="Address">
@@ -195,7 +202,14 @@ export function AssistantsPage() {
         <Setup url={access.mcpUrl} oauth={oauth} />
       </Section>
 
-      <Section title="Connected assistants" lead="Each assistant that signed in has its own grant. Revoke one and it loses access at once.">
+      <Section
+        title="Connected assistants"
+        lead={
+          sendEnabled
+            ? "Each assistant that signed in has its own grant. Those marked Can send may send; the others only read. To let one send, connect it again and click Allow. Revoke one and it loses access at once."
+            : "Each assistant that signed in has its own grant. Revoke one and it loses access at once."
+        }
+      >
         {grants.status === "loading" ? (
           <LoadingRows label="Loading assistants…" rows={2} />
         ) : grants.status === "error" ? (
@@ -233,7 +247,10 @@ export function AssistantsPage() {
                       <div className="flex min-w-0 items-center gap-3">
                         <Avatar name={g.client_name} group />
                         <div className="grid min-w-0">
-                          <span className="truncate font-medium">{g.client_name}</span>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate font-medium">{g.client_name}</span>
+                            {g.can_send && <CanSendBadge />}
+                          </span>
                           <span className="truncate font-mono text-xs text-muted-foreground">{pub ? `${pub} · ${g.id}` : g.id}</span>
                         </div>
                       </div>

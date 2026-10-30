@@ -133,7 +133,9 @@ const EVENT: Record<string, string> = {
   "chats.sync": "Chats synced",
   "chats.ticked": "Chat ticked",
   "chats.unticked": "Chat unticked",
-  "mcp.tool": "AI assistant read",
+  "message.sent": "Message sent",
+  "message.failed": "Message not sent",
+  "message.unconfirmed": "Message not confirmed by WhatsApp",
   "oauth.consent_granted": "AI assistant connected",
   "oauth.consent_denied": "AI assistant refused",
   "oauth.revoke": "AI assistant revoked",
@@ -146,18 +148,69 @@ const EVENT: Record<string, string> = {
   log: "Note",
 };
 
-const TOOL: Record<string, string> = {
-  search_messages: "searched messages",
-  read_chat: "read a chat",
-  get_message_context: "read around a message",
-  get_status: "checked the status",
-  list_chats: "listed the chats",
-  get_document: "opened a document",
+/** An MCP tool in words: what a call did, and what it set out to do ("tried to …"). */
+const TOOL: Record<string, [done: string, tried: string]> = {
+  search_messages: ["searched messages", "search messages"],
+  read_chat: ["read a chat", "read a chat"],
+  get_message_context: ["read around a message", "read around a message"],
+  get_status: ["checked the status", "check the status"],
+  list_chats: ["listed the chats", "list the chats"],
+  get_document: ["opened a document", "open a document"],
+  send_message: ["sent a message", "send a message"],
 };
 
-/** A log line in plain words: what happened, then the detail. */
-export function describeEvent(type: string, detail: string) {
-  const what = EVENT[type] ?? type.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
+/**
+ * Why a tool call did not go through, by the err= code in its log line
+ * (internal/mcp). "refused": the bridge said no and nothing happened.
+ * "failed": it tried. Other codes show as "failed: <code>".
+ */
+const TOOL_ERR: Record<string, string> = {
+  duplicate: "refused: same message sent within 2 minutes",
+  rate_limited: "refused: rate limit reached",
+  unknown_chat: "refused: chat not ticked",
+  not_ticked: "refused: chat not ticked",
+  ambiguous_chat: "refused: chat on more than one account",
+  unknown_session: "refused: account not found",
+  not_connected: "refused: account offline",
+  no_permission: "refused: only admins can send",
+  unsupported_chat: "refused: not a person or group",
+  send_disabled: "refused: sending is off",
+  send_not_allowed: "refused: not allowed to send",
+  invalid_arguments: "refused: invalid request",
+  unconfirmed: "not confirmed by WhatsApp, may still arrive",
+  send_failed: "failed: WhatsApp refused it",
+  unknown_message: "failed: message not found",
+  internal_error: "failed: bridge error",
+};
+
+/** A table entry, never an inherited one: a tool named "constructor" is just a name. */
+const own = <T,>(table: Record<string, T>, key: string | undefined): T | undefined =>
+  key !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
+
+/** Turns a chat's JID into its name, or undefined when it does not know the chat. */
+export type ChatName = (jid: string) => string | undefined;
+
+const chatLabel = (jid: string, name?: ChatName) => name?.(jid) || jid;
+
+/** "Family", "Family, Sam Lee", up to three, then "and 4 more". */
+function chatList(jids: string[], name?: ChatName) {
+  const shown = jids.slice(0, 3).map((j) => chatLabel(j, name)).join(", ");
+  return jids.length > 3 ? `${shown} and ${jids.length - 3} more` : shown;
+}
+
+/**
+ * A log line in plain words: what happened, then the detail. With chatName,
+ * chats show by name; chats it does not know show their JID. failed is true
+ * when the line records an AI assistant action that did not go through, so
+ * it never reads or looks like a success.
+ */
+export function describeEvent(type: string, detail: string, chatName?: ChatName) {
+  if (type === "chat.ticked") {
+    // "<jid>=true" or "<jid>=false" (internal/wa SetChatTicked)
+    const m = /^(.+)=(true|false)$/.exec(detail);
+    if (m) return { what: m[2] === "true" ? "Chat ticked" : "Chat unticked", detail: chatLabel(m[1], chatName), failed: false };
+  }
+  let what = own(EVENT, type) ?? type.replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase());
   // "history sync: 9 chats", or key=value pairs whose values may hold spaces
   // ("device=My bridge"): a value runs to the next key= or the end.
   const first = detail.search(/(^|\s)\w+=/);
@@ -167,14 +220,29 @@ export function describeEvent(type: string, detail: string) {
     [...tail.matchAll(/(\w+)=("[^"]*"|.*?)(?=\s+\w+=|$)/g)].map((m) => [m[1], m[2].trim().replace(/^"|"$/g, "")]),
   ) as Record<string, string>;
   const parts: string[] = [];
+  let failed = type === "message.failed" || type === "message.unconfirmed";
   if (kv.device) parts.push(`as ${kv.device}`);
-  if (kv.tool) parts.push(TOOL[kv.tool] ?? kv.tool.replace(/_/g, " "));
-  if (kv.rows) parts.push(`${kv.rows} ${kv.rows === "1" ? "row" : "rows"}`);
+  if (type === "mcp.tool") {
+    // key=… tool=… args=… rows=… dur=…ms, then chats=a,b and err=code when set
+    const name = kv.tool ? kv.tool.replace(/_/g, " ") : "a tool";
+    const [done, tried] = own(TOOL, kv.tool) ?? [`used ${name}`, `use ${name}`];
+    what = `AI assistant ${kv.err ? `tried to ${tried}` : done}`;
+    if (kv.err) {
+      failed = true;
+      parts.push(own(TOOL_ERR, kv.err) ?? `failed: ${kv.err}`);
+    }
+  }
+  if (kv.chat) parts.push(chatLabel(kv.chat, chatName));
+  if (kv.chats) parts.push(chatList(kv.chats.split(",").filter(Boolean), chatName));
+  if (kv.chars) parts.push(`${kv.chars} characters`);
+  // A send's one row and a failed call's zero rows say nothing.
+  if (kv.rows && !kv.err && kv.tool !== "send_message") parts.push(`${kv.rows} ${kv.rows === "1" ? "row" : "rows"}`);
   if (kv.client) parts.push(kv.client);
   if (kv.email) parts.push(kv.email);
   if (kv.by) parts.push(`by ${kv.by}`);
   if (kv.via) parts.push(`with ${kv.via === "code" ? "the access code" : kv.via}`);
   if (kv.key) parts.push(kv.key.startsWith("oa_") ? `grant ${kv.key}` : `key ${kv.key}`);
+  if (kv.send) parts.push(kv.send === "on" ? "can send" : "read-only");
   const plain = head.replace(/^history sync:\s*/, "").trim();
-  return { what, detail: [plain, ...parts].filter(Boolean).join(" · ") };
+  return { what, detail: [plain, ...parts].filter(Boolean).join(" · "), failed };
 }

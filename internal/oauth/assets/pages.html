@@ -78,18 +78,21 @@
 {{end}}{{end}}{{template "foot" .}}{{end}}
 
 {{define "consent"}}{{template "head" .}}{{template "crumb" "Connect an assistant"}}{{template "open"}}
-<h1 id="title">Allow {{.ClientName}} to read the shared chats?</h1>
+<h1 id="title">{{if .Send}}Allow {{.ClientName}} to read and send to the shared chats?{{else}}Allow {{.ClientName}} to read the shared chats?{{end}}</h1>
 <p>After you choose, you will be sent back to <strong class="host">{{.RedirectHost}}</strong>.</p>
 <p class="meta">{{template "who" .}}</p>
 {{if .Loopback}}<p class="warn">This app runs on a computer, not a website: the approval goes to a program listening on this machine ({{.RedirectHost}}). Continue only if you started this connection yourself, just now, from a program on this computer.</p>
 {{end}}<h2>What the app gets</h2>
 <ul>
-<li>Read-only access to the chats this bridge stores; it can never send. Only chats ticked on the bridge are visible to it.</li>
+{{if .Send}}<li>Access to the chats ticked on this bridge: it can read them and send text messages to them from your WhatsApp account. It cannot see unticked chats or send to them.</li>
+{{else}}<li>Read-only access to the chats this bridge stores; it can never send. Only chats ticked on the bridge are visible to it.</li>
+{{end}}
 <li>It cannot change or delete anything, and it never sees the access code.</li>
 <li>Access renews itself while the app uses it and ends after 30 days without use. Revoke it any time on the bridge.</li>
 </ul>
 <form method="post" action="/oauth/authorize" class="actions">
-{{template "hidden" .Req}}<button type="submit" name="action" value="allow" class="button primary">Allow</button>
+{{template "hidden" .Req}}{{if .Send}}<input type="hidden" name="send" value="1">
+{{end}}<button type="submit" name="action" value="allow" class="button primary">Allow</button>
 <button type="submit" name="action" value="deny" class="button">Deny</button>
 </form>
 {{template "foot" .}}{{end}}

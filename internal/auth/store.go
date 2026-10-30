@@ -90,8 +90,10 @@ func New(ctx context.Context, db *sql.DB, opts Options) (*Store, error) {
 		{"bridge_members", "approved_at", `TEXT`},
 		{"bridge_members", "approved_by", `TEXT NOT NULL DEFAULT ''`},
 		{"bridge_members", "notified_at", `TEXT`},
+		// Consent to send. Keys from before it existed stay read-only.
+		{"bridge_api_keys", "can_send", `INTEGER NOT NULL DEFAULT 0`},
 	} {
-		if err := addColumn(ctx, db, c.table, c.column, c.decl); err != nil {
+		if err := AddColumn(ctx, db, c.table, c.column, c.decl); err != nil {
 			return nil, fmt.Errorf("auth: migrate %s: %w", c.table, err)
 		}
 	}
@@ -180,8 +182,9 @@ func (s *Store) verifySession(ctx context.Context, token string) (member, provid
 	return member, provider, true
 }
 
-// addColumn adds a column unless it exists (SQLite has no ADD COLUMN IF NOT EXISTS).
-func addColumn(ctx context.Context, db *sql.DB, table, column, decl string) error {
+// AddColumn adds a column unless it exists (SQLite has no ADD COLUMN IF NOT
+// EXISTS). Other packages' migrations use it too (internal/oauth).
+func AddColumn(ctx context.Context, db *sql.DB, table, column, decl string) error {
 	rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return err
@@ -217,8 +220,20 @@ func (s *Store) Logout(ctx context.Context, token string) {
 
 // ---- bearer keys -------------------------------------------------------------
 
-// CreateKey mints a key. The returned secret is the only copy.
+// KeyOptions are the choices made when a key is created.
+type KeyOptions struct {
+	// CanSend lets the key use send_message when the bridge has sending on.
+	CanSend bool
+}
+
+// CreateKey mints a read-only key. The returned secret is the only copy.
 func (s *Store) CreateKey(ctx context.Context, label string, kind KeyKind) (KeyInfo, string, error) {
+	return s.CreateKeyWith(ctx, label, kind, KeyOptions{})
+}
+
+// CreateKeyWith is CreateKey with the choices in opts. Sending cannot be
+// added to a key later; a new key is created instead.
+func (s *Store) CreateKeyWith(ctx context.Context, label string, kind KeyKind, opts KeyOptions) (KeyInfo, string, error) {
 	if kind != KindMCP {
 		return KeyInfo{}, "", ErrBadKind
 	}
@@ -234,16 +249,16 @@ func (s *Store) CreateKey(ctx context.Context, label string, kind KeyKind) (KeyI
 	secret := hex.EncodeToString(sec)
 	h := sha256.Sum256([]byte(secret))
 	now := s.now()
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO bridge_api_keys (id, label, kind, hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-		id, trunc(strings.TrimSpace(label), 80), string(kind), h[:], now.Format(time.RFC3339Nano)); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO bridge_api_keys (id, label, kind, hash, created_at, can_send) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, trunc(strings.TrimSpace(label), 80), string(kind), h[:], now.Format(time.RFC3339Nano), opts.CanSend); err != nil {
 		return KeyInfo{}, "", err
 	}
-	return KeyInfo{ID: id, Label: trunc(strings.TrimSpace(label), 80), Kind: kind, CreatedAt: now}, keyPrefix + id + "_" + secret, nil
+	return KeyInfo{ID: id, Label: trunc(strings.TrimSpace(label), 80), Kind: kind, CreatedAt: now, CanSend: opts.CanSend}, keyPrefix + id + "_" + secret, nil
 }
 
 // ListKeys returns active keys without secrets, oldest first.
 func (s *Store) ListKeys(ctx context.Context) ([]KeyInfo, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, label, kind, created_at, last_used_at FROM bridge_api_keys WHERE revoked_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, label, kind, created_at, last_used_at, can_send FROM bridge_api_keys WHERE revoked_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +268,7 @@ func (s *Store) ListKeys(ctx context.Context) ([]KeyInfo, error) {
 		var k KeyInfo
 		var kind, created string
 		var used sql.NullString
-		if err := rows.Scan(&k.ID, &k.Label, &kind, &created, &used); err != nil {
+		if err := rows.Scan(&k.ID, &k.Label, &kind, &created, &used, &k.CanSend); err != nil {
 			return nil, err
 		}
 		k.Kind = KeyKind(kind)
@@ -294,8 +309,8 @@ func (s *Store) VerifyKey(ctx context.Context, bearer string) (KeyInfo, error) {
 	var kind, created string
 	var hash []byte
 	var revoked sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT id, label, kind, hash, created_at, revoked_at FROM bridge_api_keys WHERE id = ?`, id).
-		Scan(&k.ID, &k.Label, &kind, &hash, &created, &revoked)
+	err := s.db.QueryRowContext(ctx, `SELECT id, label, kind, hash, created_at, revoked_at, can_send FROM bridge_api_keys WHERE id = ?`, id).
+		Scan(&k.ID, &k.Label, &kind, &hash, &created, &revoked, &k.CanSend)
 	if err != nil || revoked.Valid {
 		return KeyInfo{}, ErrInvalidKey
 	}

@@ -10,7 +10,7 @@
 </div>
 
 whatsapp-bridge links to your WhatsApp as an extra device, the way WhatsApp Web does. It keeps
-the chats you choose in an encrypted database on your own VPS, where you can serach the chats or query them using MCP. For now, it is read only. 
+the chats you choose in an encrypted database on your own VPS, where you can serach the chats or query them using MCP. It is read-only unless you turn on sending. 
 
 ## How it works
 
@@ -18,7 +18,7 @@ the chats you choose in an encrypted database on your own VPS, where you can ser
 flowchart LR
     phone["Your phone<br/>(WhatsApp)"] -- "linked device,<br/>like WhatsApp Web" --> bridge["whatsapp-bridge<br/>on your server"]
     bridge --> db[("Encrypted database<br/>messages of ticked chats only")]
-    ai["Your AI assistant<br/>Claude · ChatGPT · Codex"] -- "MCP, after you sign in<br/>read-only tools" --> bridge
+    ai["Your AI assistant<br/>Claude · ChatGPT · Codex"] -- "MCP, after you sign in<br/>read-only tools, sending opt-in" --> bridge
 ```
 
 1. **Link.** On your phone, open **Settings › Linked devices › Link a device** and scan the
@@ -88,10 +88,19 @@ Your assistant gets six read-only tools:
 
 Every message comes with a `wa://` citation, so you can check the source of an answer.
 
+**Sending is off unless you turn it on.** Set `BRIDGE_ALLOW_SEND=1` and your assistant also
+gets `send_message`, which sends a text message to one ticked chat from your account. It
+cannot send to an unticked chat, and once you untick a chat nothing more can be sent to it.
+Each assistant must also be allowed to send when you approve it. Assistants you approved
+before stay read-only until you connect them again.
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#sending-messages) has the details and limits.
+
 ## Privacy and safety
 
-- **Read-only.** The code has no way to send messages, an "online" status or read receipts.
-  The tools cannot change or delete anything.
+- **Read-only unless you turn on sending.** By default the bridge sends nothing. With
+  `BRIDGE_ALLOW_SEND=1`, assistants you allowed to send can send text messages, to ticked
+  chats only. It never
+  sends an "online" status or read receipts, and the tools cannot change or delete anything.
 - **Only ticked chats.** Chats start unticked. The bridge never stores the messages of an
   unticked chat, only its name and last activity for the chat list, so no assistant can see
   it. For an hour after you link a phone, it holds those messages in memory only, so a chat
@@ -114,7 +123,8 @@ Every message comes with a `wa://` citation, so you can check the source of an a
 > an unofficial implementation of the WhatsApp Web protocol. It is not affiliated with,
 > endorsed by or connected to WhatsApp or Meta. WhatsApp does not permit unofficial
 > clients, and an account linked to one can be restricted. Staying silent and read-only
-> keeps that risk low but cannot remove it. You accept it when you link an account.
+> keeps that risk low but cannot remove it, and turning on sending raises it: send what a
+> person would send, never bulk messages. You accept the risk when you link an account.
 
 **Not built yet:** downloading attachments and reading their text, and limiting what each
 member sees (today every member sees all ticked chats).

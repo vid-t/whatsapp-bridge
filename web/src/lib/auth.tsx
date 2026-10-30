@@ -17,6 +17,8 @@ export interface AuthState {
   name: string;
   /** The signed-in member's email, "" for an access-code session. */
   email: string;
+  /** AI assistants may send messages to ticked chats; otherwise the bridge is read-only. */
+  sendEnabled: boolean;
   refresh: () => Promise<void>;
   signIn: (code: string) => Promise<void>;
   /** Asks the bridge to email a sign-in link (202 whether or not the address is known). */
@@ -90,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       providers: listed.filter((p): p is Provider => (KNOWN as string[]).includes(p)),
       name: me.name?.trim() || "",
       email: me.user?.email ?? "",
+      sendEnabled: me.send_enabled === true,
       refresh,
       signIn,
       emailLink,

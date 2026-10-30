@@ -171,9 +171,10 @@ func (s *Server) exchangeCode(ctx context.Context, form url.Values, clientID, is
 	}
 	var c struct {
 		clientID, clientName, redirect, challenge, scope, resource, ref string
+		canSend                                                         bool
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT client_id, client_name, redirect_uri, code_challenge, scope, resource, session_ref FROM bridge_oauth_codes WHERE hash = ?`, h).
-		Scan(&c.clientID, &c.clientName, &c.redirect, &c.challenge, &c.scope, &c.resource, &c.ref); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT client_id, client_name, redirect_uri, code_challenge, scope, resource, session_ref, can_send FROM bridge_oauth_codes WHERE hash = ?`, h).
+		Scan(&c.clientID, &c.clientName, &c.redirect, &c.challenge, &c.scope, &c.resource, &c.ref, &c.canSend); err != nil {
 		return tokenResponse{}, err
 	}
 	// Failures below roll back, so the code stays usable by its real owner.
@@ -190,8 +191,8 @@ func (s *Server) exchangeCode(ctx context.Context, form url.Values, clientID, is
 		return tokenResponse{}, terr
 	}
 	grantID := "oa_" + randomHex(8)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO bridge_oauth_grants (id, client_id, client_name, scope, resource, session_ref, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, grantID, c.clientID, c.clientName, c.scope, resource, c.ref, ms(now), ms(now.Add(refreshTTL))); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO bridge_oauth_grants (id, client_id, client_name, scope, resource, session_ref, created_at, expires_at, can_send)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, grantID, c.clientID, c.clientName, c.scope, resource, c.ref, ms(now), ms(now.Add(refreshTTL)), c.canSend); err != nil {
 		return tokenResponse{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE bridge_oauth_codes SET grant_id = ? WHERE hash = ?`, grantID, h); err != nil {
@@ -418,7 +419,8 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 // Verifier returns an auth.Verifier for the MCP endpoint: OAuth access
 // tokens (wb_at_...) are checked here, everything else by next (bearer keys).
 // An access token resolves to KeyInfo{ID: grant id, Label: client name,
-// Kind: mcp}, so rate limits and the audit log are per grant.
+// Kind: mcp, CanSend: the grant's consent, OAuth: true}, so rate limits and
+// the audit log are per grant.
 func (s *Server) Verifier(next auth.Verifier) auth.Verifier {
 	return verifier{s: s, next: next}
 }
@@ -449,10 +451,11 @@ func (s *Server) VerifyAccessToken(ctx context.Context, token string) (auth.KeyI
 		grantID, resource, name string
 		expires, created        int64
 		revoked, gRevoked, used sql.NullInt64
+		canSend                 bool
 	}
-	err := s.db.QueryRowContext(ctx, `SELECT t.grant_id, t.resource, t.expires_at, t.revoked_at, t.last_used_at, g.client_name, g.created_at, g.revoked_at
+	err := s.db.QueryRowContext(ctx, `SELECT t.grant_id, t.resource, t.expires_at, t.revoked_at, t.last_used_at, g.client_name, g.created_at, g.revoked_at, g.can_send
 		FROM bridge_oauth_tokens t JOIN bridge_oauth_grants g ON g.id = t.grant_id WHERE t.hash = ? AND t.kind = 'access'`, hashOf(token)).
-		Scan(&t.grantID, &t.resource, &t.expires, &t.revoked, &t.used, &t.name, &t.created, &t.gRevoked)
+		Scan(&t.grantID, &t.resource, &t.expires, &t.revoked, &t.used, &t.name, &t.created, &t.gRevoked, &t.canSend)
 	if errors.Is(err, sql.ErrNoRows) {
 		return auth.KeyInfo{}, auth.ErrInvalidKey
 	}
@@ -467,7 +470,7 @@ func (s *Server) VerifyAccessToken(ctx context.Context, token string) (auth.KeyI
 		_, _ = s.db.ExecContext(ctx, `UPDATE bridge_oauth_tokens SET last_used_at = ? WHERE hash = ?`, ms(now), hashOf(token))
 		_, _ = s.db.ExecContext(ctx, `UPDATE bridge_oauth_grants SET last_used_at = ? WHERE id = ?`, ms(now), t.grantID)
 	}
-	return auth.KeyInfo{ID: t.grantID, Label: t.name, Kind: auth.KindMCP, CreatedAt: fromMS(t.created), LastUsedAt: now}, nil
+	return auth.KeyInfo{ID: t.grantID, Label: t.name, Kind: auth.KindMCP, CreatedAt: fromMS(t.created), LastUsedAt: now, CanSend: t.canSend, OAuth: true}, nil
 }
 
 // resourceBound checks the audience: a token bound to a resource is valid

@@ -95,6 +95,10 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		"version":       s.version,
 		"providers":     providers,
 	}
+	// Whether sending is on is for signed-in people only.
+	if p.Authenticated() {
+		out["send_enabled"] = s.send
+	}
 	if p.User != nil {
 		out["user"] = p.User
 	}
@@ -119,6 +123,9 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Label string `json:"label"`
 		Kind  string `json:"kind"`
+		// CanSend lets the key use send_message. Off by default; it cannot
+		// be added to a key later.
+		CanSend bool `json:"can_send"`
 	}
 	if !decodeJSON(w, r, &body, true) {
 		return
@@ -127,11 +134,15 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if body.CanSend && !s.send {
+		writeError(w, http.StatusConflict, "sending is off on this bridge (BRIDGE_ALLOW_SEND), so a key cannot be allowed to send")
+		return
+	}
 	kind := auth.KindMCP
 	if body.Kind != "" {
 		kind = auth.KeyKind(body.Kind)
 	}
-	info, secret, err := s.auth.CreateKey(r.Context(), label, kind)
+	info, secret, err := s.auth.CreateKeyWith(r.Context(), label, kind, auth.KeyOptions{CanSend: body.CanSend})
 	if err != nil {
 		if errors.Is(err, auth.ErrBadKind) {
 			writeError(w, http.StatusBadRequest, `kind must be "mcp"`)
@@ -140,9 +151,13 @@ func (s *server) createKey(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err, http.StatusInternalServerError)
 		return
 	}
-	s.audit(r, "key.created", "id="+info.ID+" kind="+string(info.Kind))
+	send := "off"
+	if info.CanSend {
+		send = "on"
+	}
+	s.audit(r, "key.created", "id="+info.ID+" kind="+string(info.Kind)+" send="+send)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id": info.ID, "key": secret, "label": info.Label, "kind": info.Kind, "created_at": info.CreatedAt,
+		"id": info.ID, "key": secret, "label": info.Label, "kind": info.Kind, "created_at": info.CreatedAt, "can_send": info.CanSend,
 	})
 }
 

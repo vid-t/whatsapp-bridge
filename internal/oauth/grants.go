@@ -16,6 +16,9 @@ type Grant struct {
 	ClientID   string     `json:"client_id"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+	// CanSend: the user approved sending on the consent page. Grants
+	// approved read-only never send, even when sending is turned on later.
+	CanSend bool `json:"can_send"`
 }
 
 // RegisterAPI mounts the grants API on the web layer's inner mux (through
@@ -47,7 +50,7 @@ func (s *Server) sessionOnly(next http.HandlerFunc) http.HandlerFunc {
 
 // Grants returns the active (not revoked, not expired) grants, oldest first.
 func (s *Server) Grants(ctx context.Context) ([]Grant, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, client_name, client_id, created_at, last_used_at FROM bridge_oauth_grants
+	rows, err := s.db.QueryContext(ctx, `SELECT id, client_name, client_id, created_at, last_used_at, can_send FROM bridge_oauth_grants
 		WHERE revoked_at IS NULL AND expires_at > ? ORDER BY created_at, id`, ms(s.now()))
 	if err != nil {
 		return nil, err
@@ -58,7 +61,7 @@ func (s *Server) Grants(ctx context.Context) ([]Grant, error) {
 		var g Grant
 		var created int64
 		var used sql.NullInt64
-		if err := rows.Scan(&g.ID, &g.ClientName, &g.ClientID, &created, &used); err != nil {
+		if err := rows.Scan(&g.ID, &g.ClientName, &g.ClientID, &created, &used, &g.CanSend); err != nil {
 			return nil, err
 		}
 		g.CreatedAt = fromMS(created)

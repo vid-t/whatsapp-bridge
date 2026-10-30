@@ -7,6 +7,7 @@ import { Page, PageHeader } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { ago, fmtPhone, sessionTitle } from "@/lib/format";
 import { stagger, useFlash } from "@/lib/motion";
 import { Link, useTitle } from "@/lib/router";
@@ -138,6 +139,7 @@ function AccountRow({ s, i, ticked }: { s: SessionInfo; i: number; ticked?: numb
 
 export function AccountsPage() {
   useTitle("Accounts");
+  const { sendEnabled } = useAuth();
   const { list, error, reload } = useSessions();
   const ticked = useTickedCounts(list);
 
@@ -145,7 +147,11 @@ export function AccountsPage() {
     <Page>
       <PageHeader
         title="Accounts"
-        lead="Each account is one WhatsApp number, linked to the bridge as a read-only device."
+        lead={
+          sendEnabled
+            ? "Each account is one WhatsApp number, linked to the bridge as a device. AI assistants can send messages to its ticked chats."
+            : "Each account is one WhatsApp number, linked to the bridge as a read-only device."
+        }
         actions={list && list.length > 0 ? <LinkButton /> : undefined}
       />
       {error && <RetryLine text={error} onRetry={() => void reload()} />}

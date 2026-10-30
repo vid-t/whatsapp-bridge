@@ -41,6 +41,9 @@ each step.
 
 The README's Privacy and safety section lists the defaults: chats start unticked,
 encryption at rest, the access code, loopback-only listening and read-only access to ticked
-chats. For an hour after a phone is linked, messages for unticked chats are held in the
+chats. With `BRIDGE_ALLOW_SEND=1`, assistants may also send text messages to ticked chats, and
+to no other chat ([`docs/CONFIGURATION.md`](docs/CONFIGURATION.md#sending-messages)). Only
+assistants approved on a page that said they could send, and keys created with sending,
+may send; those approved or created before stay read-only. For an hour after a phone is linked, messages for unticked chats are held in the
 bridge's memory, never in the database or a log, so that ticking a chat keeps its history.
 [`docs/MCP-SETUP.md`](docs/MCP-SETUP.md) describes how assistants sign in.

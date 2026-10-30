@@ -114,7 +114,7 @@ EOF
 write_unit() {
   cat > "$UNIT" <<'EOF'
 [Unit]
-Description=whatsapp-bridge (read-only WhatsApp linked device)
+Description=whatsapp-bridge (WhatsApp linked device)
 Documentation=https://github.com/vid-t/whatsapp-bridge
 After=network-online.target
 Wants=network-online.target

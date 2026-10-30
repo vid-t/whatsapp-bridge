@@ -18,6 +18,13 @@ func (m *Manager) Audit(ctx context.Context, typ, detail string) {
 	m.appendLog(ctx, "", typ, detail)
 }
 
+// AuditFor is Audit for an event about one account, such as a send or a
+// refused send: it shows in that account's activity, not only in the
+// bridge-wide log. An empty sessionID is the same as Audit.
+func (m *Manager) AuditFor(ctx context.Context, sessionID, typ, detail string) {
+	m.appendLog(ctx, sessionID, typ, detail)
+}
+
 // AppendAudit is Audit without a Manager, for the admin command (`bridge
 // members`), which opens the database beside the running service and must
 // not load or touch the linked devices.
@@ -30,11 +37,14 @@ func AppendAudit(ctx context.Context, db *sql.DB, typ, detail string) error {
 // SetChatTicked turns storage for a chat on or off. Turning it on stores new
 // messages from now on, plus the messages held in memory for the chat while
 // its account's window after linking is open. Turning it off deletes the
-// chat's stored messages.
+// chat's stored messages and, when sending is on, stops sends to the chat: it
+// waits for a send in progress, and none can start after it.
 func (m *Manager) SetChatTicked(ctx context.Context, sessionID, chatJID string, ticked bool) (Chat, error) {
 	if _, err := m.get(sessionID); err != nil {
 		return Chat{}, err
 	}
+	unlock := m.tickLocks.lock(sessionID, chatJID)
+	defer unlock()
 	chats, err := m.queryChats(ctx, `WHERE session_id = ? AND jid = ?`, sessionID, chatJID)
 	if err != nil {
 		return Chat{}, err

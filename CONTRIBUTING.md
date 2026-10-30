@@ -33,11 +33,13 @@ npm --prefix web run preview:mock   # the built UI against a mock bridge, no Wha
 - `internal/auth/`, `internal/members/`, `internal/mail/`, `internal/sso/`: sign-in and members
 - `web/`: the web UI source (React, Vite); `deploy/`: self-hosting files; `docs/`: guides
 
-## The read-only rule
+## The sending rule
 
-whatsapp-bridge never sends anything to WhatsApp on the user's behalf. It has no send path, no
-presence ("online") and no read receipts, and its MCP tools cannot change or delete
-messages. Open an issue before working on anything that would change that.
+whatsapp-bridge sends nothing to WhatsApp unless the operator sets `BRIDGE_ALLOW_SEND=1`.
+Then it sends plain text to ticked chats only, through `send_message`. It never sends
+presence ("online") or read receipts, and its MCP tools cannot change or delete messages.
+All sending goes through `SendText` in `internal/wa/send.go`, behind those checks. Open an
+issue before working on anything that would widen that.
 
 ## Dependencies
 

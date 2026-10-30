@@ -164,13 +164,92 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+func TestMeSaysWhetherSendingIsOn(t *testing.T) {
+	h, _ := gatedHandler(t, Options{Auth: newAuthStore(t, ""), SendEnabled: true})
+	var me map[string]any
+	_ = json.Unmarshal(call(h, "GET", "/api/me", "", nil).Body.Bytes(), &me)
+	if me["send_enabled"] != true {
+		t.Fatalf("me with sending on: %v", me)
+	}
+}
+
+func TestMeHidesSendingWhenSignedOut(t *testing.T) {
+	st := newAuthStore(t, "open-sesame")
+	h, _ := gatedHandler(t, Options{Auth: st, SendEnabled: true})
+	var me map[string]any
+	_ = json.Unmarshal(call(h, "GET", "/api/me", "", nil).Body.Bytes(), &me)
+	if _, ok := me["send_enabled"]; ok || me["authenticated"] != false {
+		t.Fatalf("a signed-out visitor must not learn whether sending is on: %v", me)
+	}
+	w := call(h, "POST", "/auth/login", `{"code":"open-sesame"}`, nil)
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if strings.Contains(c.Name, "bridge_session") {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatalf("login: %d", w.Code)
+	}
+	me = nil
+	_ = json.Unmarshal(call(h, "GET", "/api/me", "", func(r *http.Request) { r.AddCookie(cookie) }).Body.Bytes(), &me)
+	if me["send_enabled"] != true {
+		t.Fatalf("signed in, with sending on: %v", me)
+	}
+}
+
+func TestKeysWithSending(t *testing.T) {
+	type keyJSON struct {
+		ID      string `json:"id"`
+		Key     string `json:"key"`
+		CanSend *bool  `json:"can_send"`
+	}
+	// Sending off: a key cannot be allowed to send.
+	off, _ := gatedHandler(t, Options{Auth: newAuthStore(t, "")})
+	if w := call(off, "POST", "/api/keys", `{"label":"Sender","can_send":true}`, nil); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "sending is off") {
+		t.Fatalf("send key with sending off: %d %s", w.Code, w.Body)
+	}
+	if w := call(off, "GET", "/api/keys", "", nil); w.Body.String() != "[]\n" {
+		t.Fatalf("a refused key must not be created: %s", w.Body)
+	}
+
+	// Sending on: read-only by default, sending only when asked for.
+	st := newAuthStore(t, "")
+	var audited []string
+	on, _ := gatedHandler(t, Options{Auth: st, SendEnabled: true, Audit: func(typ, detail string) { audited = append(audited, typ+" "+detail) }})
+	var ro, sk keyJSON
+	w := call(on, "POST", "/api/keys", `{"label":"Reader"}`, nil)
+	_ = json.Unmarshal(w.Body.Bytes(), &ro)
+	if w.Code != http.StatusCreated || ro.CanSend == nil || *ro.CanSend {
+		t.Fatalf("default key: %d %s", w.Code, w.Body)
+	}
+	w = call(on, "POST", "/api/keys", `{"label":"Sender","can_send":true}`, nil)
+	_ = json.Unmarshal(w.Body.Bytes(), &sk)
+	if w.Code != http.StatusCreated || sk.CanSend == nil || !*sk.CanSend {
+		t.Fatalf("send key: %d %s", w.Code, w.Body)
+	}
+	var list []keyJSON
+	_ = json.Unmarshal(call(on, "GET", "/api/keys", "", nil).Body.Bytes(), &list)
+	if len(list) != 2 || list[0].CanSend == nil || *list[0].CanSend || list[1].CanSend == nil || !*list[1].CanSend {
+		t.Fatalf("list keys: %+v", list)
+	}
+	for secret, want := range map[string]bool{ro.Key: false, sk.Key: true} {
+		if k, err := st.VerifyKey(context.Background(), secret); err != nil || k.CanSend != want {
+			t.Fatalf("verify: %+v %v, want can send %v", k, err, want)
+		}
+	}
+	if j := strings.Join(audited, "\n"); !strings.Contains(j, "key.created id="+ro.ID+" kind=mcp send=off") || !strings.Contains(j, "key.created id="+sk.ID+" kind=mcp send=on") {
+		t.Fatalf("audit: %s", j)
+	}
+}
+
 func TestOpenMode(t *testing.T) {
 	st := newAuthStore(t, "")
 	h, _ := gatedHandler(t, Options{Auth: st})
 	w := call(h, "GET", "/api/me", "", nil)
 	var me map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &me)
-	if me["auth_required"] != false || me["authenticated"] != true || me["principal"] != "open" {
+	if me["auth_required"] != false || me["authenticated"] != true || me["principal"] != "open" || me["send_enabled"] != false {
 		t.Fatalf("open mode me: %v", me)
 	}
 	if w := call(h, "POST", "/auth/login", `{"code":"x"}`, nil); w.Code != http.StatusConflict {

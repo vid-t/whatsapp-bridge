@@ -331,16 +331,26 @@ ORDER BY last_message_at DESC NULLS LAST, name`, args...)
 // the chat has a row. It fails closed: an unknown chat or a database error
 // means "not ticked". Errors are logged.
 func (m *Manager) chatTicked(ctx context.Context, sessionID, jid string) (ticked, known bool) {
+	ticked, known, err := m.readTick(ctx, sessionID, jid)
+	if err != nil {
+		m.log.Warn("read chat tick; treating the chat as unticked", "session", sessionID, "err", err)
+	}
+	return ticked, known
+}
+
+// readTick is chatTicked returning the database error instead of logging
+// it, for SendText, which must not report a failed read as an unticked chat.
+// An unknown chat is not an error.
+func (m *Manager) readTick(ctx context.Context, sessionID, jid string) (ticked, known bool, err error) {
 	var t int
-	err := m.db.QueryRowContext(ctx, `SELECT ticked FROM bridge_chats WHERE session_id = ? AND jid = ?`, sessionID, jid).Scan(&t)
+	err = m.db.QueryRowContext(ctx, `SELECT ticked FROM bridge_chats WHERE session_id = ? AND jid = ?`, sessionID, jid).Scan(&t)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return false, false
+		return false, false, nil
 	case err != nil:
-		m.log.Warn("read chat tick; treating the chat as unticked", "session", sessionID, "err", err)
-		return false, false
+		return false, false, err
 	}
-	return t != 0, true
+	return t != 0, true, nil
 }
 
 // tickChat ticks a chat and writes the held messages it is given, in one

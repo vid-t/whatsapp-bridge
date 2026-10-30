@@ -268,6 +268,22 @@ func TestConsentRejectsCrossOriginPost(t *testing.T) {
 	}
 }
 
+func TestConsentSaysWhenTheAppCanSend(t *testing.T) {
+	for _, send := range []bool{false, true} {
+		h := newHarness(t, harnessOpts{code: "", derive: true, send: send})
+		id := h.register(loopbackCB)
+		resp, page := h.get(AuthorizePath + "?" + authzQuery(id, loopbackUsed, newPKCE(), "s1").Encode())
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("send=%v: consent %d", send, resp.StatusCode)
+		}
+		readOnly := strings.Contains(page, "it can never send")
+		sends := strings.Contains(page, "to read and send to the shared chats?") && strings.Contains(page, "send text messages to them from your WhatsApp account")
+		if readOnly == send || sends != send {
+			t.Fatalf("send=%v: the consent page must say what the app gets:\n%s", send, page)
+		}
+	}
+}
+
 func TestOpenModeSkipsSignInButAsksConsent(t *testing.T) {
 	h := newHarness(t, harnessOpts{code: "", derive: true})
 	id := h.register(loopbackCB)
