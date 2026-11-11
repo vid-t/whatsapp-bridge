@@ -39,33 +39,40 @@ flowchart LR
 
 ## Run it on your computer
 
-macOS or Linux, no Go needed. The first command downloads the latest release for your system.
+macOS or Linux, on amd64 or arm64. No Go needed: these lines download the latest release
+into `~/whatsapp-bridge`, create your keys once, and start the bridge.
 
 ```sh
+mkdir -p ~/whatsapp-bridge && cd ~/whatsapp-bridge
 os=$(uname -s | tr A-Z a-z); arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 curl -fsSL "https://github.com/vid-t/whatsapp-bridge/releases/latest/download/whatsapp-bridge_${os}_${arch}.tar.gz" | tar -xzf - whatsapp-bridge
-./whatsapp-bridge keygen > whatsapp-bridge.env && chmod 600 whatsapp-bridge.env
+[ -e whatsapp-bridge.env ] || (umask 077; ./whatsapp-bridge keygen > whatsapp-bridge.env)
 ./whatsapp-bridge serve -env-file whatsapp-bridge.env
 ```
 
 Open <http://127.0.0.1:8080> and enter the access code from `whatsapp-bridge.env`. Link
 WhatsApp, then tick your chats within the hour to keep their recent history.
 
-Connect Claude Code ([Codex](docs/MCP-SETUP.md#4-codex-cli)):
+In a second terminal, connect Claude Code:
 
 ```sh
-claude mcp add --transport http whatsapp-bridge http://127.0.0.1:8080/mcp
+claude mcp add --transport http --scope user whatsapp-bridge http://127.0.0.1:8080/mcp
 claude mcp login whatsapp-bridge
 ```
 
-Leave the bridge running to keep your chats up to date. It keeps its data in a `data` folder
-in the directory you started it from.
+For Codex, run `codex mcp add whatsapp-bridge --url http://127.0.0.1:8080/mcp`.
+
+Leave the bridge running to keep your chats up to date. Its data is in
+`~/whatsapp-bridge/data`. To upgrade, stop it and run the same lines again: they replace the
+binary and keep your keys and data.
 
 > [!IMPORTANT]
 > `whatsapp-bridge.env` holds the database key. Without it the database cannot be read, so
 > back it up.
 
-To build from source instead, see [CONTRIBUTING.md](CONTRIBUTING.md).
+To build from source instead, clone the repository, build as in
+[CONTRIBUTING.md](CONTRIBUTING.md#build-and-test), and use `bin/whatsapp-bridge` in the lines
+above.
 
 ## Run it on a server
 

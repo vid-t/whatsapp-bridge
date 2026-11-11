@@ -44,6 +44,11 @@ archives:
 checksum:
   name_template: checksums.txt
 
+release:
+  # A tag like v0.2.0-rc.1 becomes a pre-release, so releases/latest (the README's
+  # download link and the installer's default) never points at it.
+  prerelease: auto
+
 changelog:
   use: git
   sort: asc

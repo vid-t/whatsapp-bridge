@@ -214,9 +214,9 @@ main() {
     asset="whatsapp-bridge_${ver}_linux_${arch}.tar.gz"
     awk -v f="$asset" '$2 == f || $2 == "*" f' "$tmp/checksums.txt" > "$tmp/expected.sha256"
   fi
+  [ -s "$tmp/expected.sha256" ] || die "no linux_${arch} archive is listed in $url/checksums.txt"
   say "Downloading $asset ($tag)"
   curl -fsSL --retry 3 -o "$tmp/$asset" "$url/$asset" || die "download failed: $url/$asset"
-  [ -s "$tmp/expected.sha256" ] || die "$asset is not listed in checksums.txt"
   (cd "$tmp" && sha256sum --check --status expected.sha256) || die "checksum mismatch for $asset; not installed"
   say "Checksum verified"
   tar -xzf "$tmp/$asset" -C "$tmp" whatsapp-bridge || die "no whatsapp-bridge binary in $asset"
