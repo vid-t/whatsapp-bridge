@@ -2,7 +2,7 @@
 
 # whatsapp-bridge
 
-**A self-hosted bridge & seutp gateaway built on top of whats-meow for storing and accessing your raw whatsapp data**
+**A self-hosted bridge and setup gateway, built on whatsmeow, for storing and accessing your raw WhatsApp data**
 
 [![CI](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/vid-t/whatsapp-bridge/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0-only](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
@@ -10,13 +10,14 @@
 </div>
 
 whatsapp-bridge links to your WhatsApp as an extra device, the way WhatsApp Web does. It keeps
-the chats you choose in an encrypted database on your own VPS, where you can serach the chats or query them using MCP. It is read-only unless you turn on sending. 
+the chats you choose in an encrypted database on your own computer or server, where you can
+search them or query them over MCP. It is read-only unless you turn on sending.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    phone["Your phone<br/>(WhatsApp)"] -- "linked device,<br/>like WhatsApp Web" --> bridge["whatsapp-bridge<br/>on your server"]
+    phone["Your phone<br/>(WhatsApp)"] -- "linked device,<br/>like WhatsApp Web" --> bridge["whatsapp-bridge<br/>on your computer or server"]
     bridge --> db[("Encrypted database<br/>messages of ticked chats only")]
     ai["Your AI assistant<br/>Claude · ChatGPT · Codex"] -- "MCP, after you sign in<br/>read-only tools, sending opt-in" --> bridge
 ```
@@ -26,33 +27,51 @@ flowchart LR
 2. **Tick.** Choose only which chats it keeps. Every chat starts unticked, and the bridge
    stores none of its messages until you tick it. Tick within an hour of linking to also
    keep the history WhatsApp sends at linking.
-3. **Ask.** Connect your assistant to `https://<your server>/mcp` and sign in. It searches
+3. **Ask.** Connect your assistant to the bridge's `/mcp` address and sign in. It searches
    and reads your ticked chats when it needs to, and cites every message it uses.
 
-## Try it locally
+## Where to run it
 
-Go 1.27 or newer. The web UI is built into the binary.
+| You use | Run it | Why |
+|---|---|---|
+| Claude Code or Codex | [on your computer](#run-it-on-your-computer) | they connect from your machine, so `localhost` works |
+| claude.ai, Claude Desktop, ChatGPT, or a team | [on a server](#run-it-on-a-server) | they connect from their own servers, so they need a public HTTPS address |
+
+## Run it on your computer
+
+macOS or Linux, no Go needed. The first command downloads the latest release for your system.
 
 ```sh
-git clone https://github.com/vid-t/whatsapp-bridge.git && cd whatsapp-bridge
-CGO_ENABLED=0 go build -o bin/whatsapp-bridge ./cmd/whatsapp-bridge
-./bin/whatsapp-bridge keygen > whatsapp-bridge.env && chmod 600 whatsapp-bridge.env
-./bin/whatsapp-bridge serve -env-file whatsapp-bridge.env
+os=$(uname -s | tr A-Z a-z); arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -fsSL "https://github.com/vid-t/whatsapp-bridge/releases/latest/download/whatsapp-bridge_${os}_${arch}.tar.gz" | tar -xzf - whatsapp-bridge
+./whatsapp-bridge keygen > whatsapp-bridge.env && chmod 600 whatsapp-bridge.env
+./whatsapp-bridge serve -env-file whatsapp-bridge.env
 ```
 
-Open <http://127.0.0.1:8080>, enter the access code from `whatsapp-bridge.env`, link
-WhatsApp and tick your chats. Tick them within the hour to keep their recent history.
+Open <http://127.0.0.1:8080> and enter the access code from `whatsapp-bridge.env`. Link
+WhatsApp, then tick your chats within the hour to keep their recent history.
+
+Connect Claude Code ([Codex](docs/MCP-SETUP.md#4-codex-cli)):
+
+```sh
+claude mcp add --transport http whatsapp-bridge http://127.0.0.1:8080/mcp
+claude mcp login whatsapp-bridge
+```
+
+Leave the bridge running to keep your chats up to date. It keeps its data in a `data` folder
+in the directory you started it from.
 
 > [!IMPORTANT]
 > `whatsapp-bridge.env` holds the database key. Without it the database cannot be read, so
 > back it up.
 
+To build from source instead, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Run it on a server
 
-claude.ai and ChatGPT reach the bridge from their own servers, so they need a public HTTPS
-address. Claude Code and Codex also work over `localhost` or a private network.
-[`deploy/SELF-HOSTING.md`](deploy/SELF-HOSTING.md) has three paths. Each ends at
-`https://<your domain>` with automatic HTTPS from Caddy.
+claude.ai, Claude Desktop and ChatGPT reach the bridge from their own servers, so it needs a
+public HTTPS address. [`deploy/SELF-HOSTING.md`](deploy/SELF-HOSTING.md) has three paths.
+Each ends at `https://<your domain>` with automatic HTTPS from Caddy.
 
 | Path | Best for |
 |---|---|
@@ -64,16 +83,12 @@ You need a domain pointing at the server, with ports 80 and 443 open.
 
 ## Connect your assistant
 
-In Claude Code:
-
-```sh
-claude mcp add --transport http whatsapp-bridge https://<host>/mcp
-claude mcp login whatsapp-bridge
-```
-
-In claude.ai, Claude Desktop, ChatGPT or Codex, add `https://<host>/mcp` as a connector and
-sign in on the page that opens. [`docs/MCP-SETUP.md`](docs/MCP-SETUP.md) has the steps for
-each assistant, plus API keys for scripts.
+The bridge's MCP address is `http://127.0.0.1:8080/mcp` on your computer and
+`https://<your domain>/mcp` on a server. In Claude Code, add it with `claude mcp add` and
+sign in with `claude mcp login`, as above. In claude.ai, Claude Desktop, ChatGPT or Codex,
+add it as a connector and sign in on the page that opens.
+[`docs/MCP-SETUP.md`](docs/MCP-SETUP.md) has the steps for each assistant, plus API keys for
+scripts.
 
 Your assistant gets six read-only tools:
 

@@ -32,7 +32,9 @@ builds:
 archives:
   - id: whatsapp-bridge
     formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # No version in the name, so releases/latest/download/<name> always works
+    # (the README's install command relies on it).
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - README.md
