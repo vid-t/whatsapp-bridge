@@ -203,15 +203,20 @@ main() {
   ver="${tag#v}"
   [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || die "VERSION must look like v1.2.3, got: $version"
 
-  asset="whatsapp-bridge_${ver}_linux_${arch}.tar.gz"
   url="https://github.com/$REPO/releases/download/$tag"
   TMP_DIR=$(mktemp -d)
   tmp=$TMP_DIR
+  curl -fsSL --retry 3 -o "$tmp/checksums.txt" "$url/checksums.txt" || die "download failed: $url/checksums.txt"
+  # Archives carry no version in their name from v0.2.0 on; older releases have it.
+  asset="whatsapp-bridge_linux_${arch}.tar.gz"
+  awk -v f="$asset" '$2 == f || $2 == "*" f' "$tmp/checksums.txt" > "$tmp/expected.sha256"
+  if [ ! -s "$tmp/expected.sha256" ]; then
+    asset="whatsapp-bridge_${ver}_linux_${arch}.tar.gz"
+    awk -v f="$asset" '$2 == f || $2 == "*" f' "$tmp/checksums.txt" > "$tmp/expected.sha256"
+  fi
+  [ -s "$tmp/expected.sha256" ] || die "no linux_${arch} archive is listed in $url/checksums.txt"
   say "Downloading $asset ($tag)"
   curl -fsSL --retry 3 -o "$tmp/$asset" "$url/$asset" || die "download failed: $url/$asset"
-  curl -fsSL --retry 3 -o "$tmp/checksums.txt" "$url/checksums.txt" || die "download failed: $url/checksums.txt"
-  awk -v f="$asset" '$2 == f || $2 == "*" f' "$tmp/checksums.txt" > "$tmp/expected.sha256"
-  [ -s "$tmp/expected.sha256" ] || die "$asset is not listed in checksums.txt"
   (cd "$tmp" && sha256sum --check --status expected.sha256) || die "checksum mismatch for $asset; not installed"
   say "Checksum verified"
   tar -xzf "$tmp/$asset" -C "$tmp" whatsapp-bridge || die "no whatsapp-bridge binary in $asset"

@@ -16,7 +16,8 @@ There are two ways to connect:
   (section 6).
 
 In the commands below, replace `<host>` with the address you reach the bridge at, for
-example `bridge.example.com`.
+example `bridge.example.com`. For a bridge on your own computer, use
+`http://127.0.0.1:8080/mcp` instead of `https://<host>/mcp`: Claude Code and Codex accept it.
 
 ---
 
